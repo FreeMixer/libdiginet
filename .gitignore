@@ -7,3 +7,4 @@
 !/tests/test_*.c
 !/tests/test_*.sh
 __pycache__/
+/tools/diginet-probe
