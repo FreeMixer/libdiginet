@@ -20,7 +20,7 @@ VERSION := $(shell sed -n 's/^\#define DIGINET_VERSION_STRING "\(.*\)"/\1/p' inc
 
 OBJS := src/diginet_frame.o src/diginet_msg.o src/diginet_codec.o src/diginet_decode.o
 
-TESTS := tests/test_frame
+TESTS := tests/test_frame tests/test_codec
 
 GOLDEN := tests/golden/frames.txt
 RUN_TEST := tests/run-test.sh
@@ -39,8 +39,12 @@ libdiginet.a: $(OBJS)
 tests/test_frame: tests/test_frame.c tests/golden.h libdiginet.a
 	$(CC) $(CFLAGS) $(WARN) $(INC) $< libdiginet.a -o $@
 
+tests/test_codec: tests/test_codec.c tests/golden.h libdiginet.a
+	$(CC) $(CFLAGS) $(WARN) $(INC) $< libdiginet.a -o $@
+
 test: $(TESTS)
 	$(RUN_TEST) tests/test_frame $(GOLDEN)
+	$(RUN_TEST) tests/test_codec $(GOLDEN)
 	$(RUN_TEST) tests/public-sources-check.sh
 	$(RUN_TEST) tests/test_public_sources.sh
 
