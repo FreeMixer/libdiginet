@@ -42,6 +42,14 @@ tests/test_frame: tests/test_frame.c tests/golden.h libdiginet.a
 test: $(TESTS)
 	$(RUN_TEST) tests/test_frame $(GOLDEN)
 
+# The Kaitai grammar compiles, and the parser it generates reads the golden frames with
+# the values the C suite asserts. Needs kaitai-struct-compiler 0.11 and the Python runtime.
+KSY_OUT := build/ksy
+ksy-check:
+	@mkdir -p $(KSY_OUT)
+	kaitai-struct-compiler -t python --outdir $(KSY_OUT) protocol/diginet.ksy
+	python3 tests/ksy/check_golden.py $(KSY_OUT) $(GOLDEN)
+
 libdiginet.pc: packaging/libdiginet.pc.in include/diginet/diginet.h
 	sed -e 's|@PREFIX@|$(PREFIX)|' -e 's|@LIBDIR@|$(LIBDIR)|' -e 's|@INCDIR@|$(INCDIR)|' \
 	    -e 's|@VERSION@|$(VERSION)|' $< > $@
@@ -56,4 +64,4 @@ clean:
 	rm -f $(OBJS) $(OBJS:.o=.d) libdiginet.a libdiginet.pc $(TESTS)
 	rm -rf build
 
-.PHONY: all test install clean
+.PHONY: all test ksy-check install clean
