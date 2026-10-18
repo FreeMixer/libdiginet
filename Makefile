@@ -92,7 +92,7 @@ build/diginet-probe: tools/diginet-probe.c $(TSO) $(SO)
 	@mkdir -p build
 	$(CC) $(CFLAGS) $(WARN) $(INC) $< $(LDFLAGS) -L. -ldiginet-transport -ldiginet -o $@
 
-shared: $(SO) $(TSO) build/diginet-probe libdiginet.pc libdiginet-transport.pc
+shared: $(SO) $(TSO) build/diginet-probe
 
 tests/test_probe: tests/test_probe.c tests/desk_emu.c tests/desk_emu.h tests/emu_pump.h tests/golden.h libdiginet-transport.a libdiginet.a
 	$(CC) $(CFLAGS) $(WARN) $(INC) $< tests/desk_emu.c libdiginet-transport.a libdiginet.a -o $@
@@ -118,17 +118,19 @@ ksy-check:
 	kaitai-struct-compiler -t python --outdir $(KSY_OUT) protocol/diginet.ksy
 	python3 tests/ksy/check_golden.py $(KSY_OUT) $(GOLDEN)
 
-%.pc: packaging/%.pc.in VERSION
-	sed -e 's|@PREFIX@|$(PREFIX)|' -e 's|@LIBDIR@|$(LIBDIR)|' -e 's|@INCDIR@|$(INCDIR)|' \
-	    -e 's|@VERSION@|$(VERSION)|' $< > $@
+# The pkg-config files are written at install time, from the install's own PREFIX and LIBDIR:
+# a file kept from an earlier build would name that build's directories.
+PCSED = sed -e 's|@PREFIX@|$(PREFIX)|' -e 's|@LIBDIR@|$(LIBDIR)|' -e 's|@INCDIR@|$(INCDIR)|' \
+	    -e 's|@VERSION@|$(VERSION)|'
 
 # What both installs carry: headers, pkg-config files, the grammar, the manual page.
-install-common: libdiginet.pc libdiginet-transport.pc
+install-common:
 	install -d $(DESTDIR)$(INCDIR)/diginet/transport $(DESTDIR)$(PCDIR) $(DESTDIR)$(BINDIR) \
 	    $(DESTDIR)$(DATADIR)/diginet $(DESTDIR)$(MANDIR)/man1
 	install -m 644 include/diginet/*.h $(DESTDIR)$(INCDIR)/diginet/
 	install -m 644 include/diginet/transport/*.h $(DESTDIR)$(INCDIR)/diginet/transport/
-	install -m 644 libdiginet.pc libdiginet-transport.pc $(DESTDIR)$(PCDIR)/
+	$(PCSED) packaging/libdiginet.pc.in > $(DESTDIR)$(PCDIR)/libdiginet.pc
+	$(PCSED) packaging/libdiginet-transport.pc.in > $(DESTDIR)$(PCDIR)/libdiginet-transport.pc
 	install -m 644 protocol/diginet.ksy $(DESTDIR)$(DATADIR)/diginet/
 	install -m 644 docs/diginet-probe.1 $(DESTDIR)$(MANDIR)/man1/
 
