@@ -78,3 +78,32 @@ and the Python runtime (`pip install kaitaistruct==0.11`). CI runs it in a Debia
 debian:bookworm and debian:trixie containers, `make test` once more on the bare runner (where
 the namespace test can run), and `make ksy-check` in a Debian container with the compiler
 installed.
+
+## Packages
+
+One source builds two shared libraries and a tool:
+
+| | Fedora | Debian |
+| --- | --- | --- |
+| libdiginet, libdiginet-transport | `libdiginet` | `libdiginet0`, `libdiginet-transport0` |
+| headers, pkg-config, `diginet.ksy` | `libdiginet-devel` | `libdiginet-dev` |
+| `diginet-probe` | `diginet-tools` | `diginet-tools` |
+
+`packaging/libdiginet.spec` and `debian/` describe them; both run `make shared` and
+`make install-shared`, and `make test` against the result. The RPM gives `diginet-probe`
+`cap_net_raw` with `%caps`; the DEB sets it in `diginet-tools.postinst` with `setcap`.
+
+The version is the `VERSION` file; the sonames' majors are `DIGINET_ABI` and
+`DIGINET_TRANSPORT_ABI` in `include/diginet/diginet.h`. `tests/conformance-packaging.sh` (part of
+`make test`) refuses a header, spec or `debian/` that disagrees with them.
+
+### Releasing
+
+Set the version in `VERSION`, `include/diginet/diginet.h`, `Version:` in the spec and the top
+entry of `debian/changelog`, then tag `vX.Y.Z`. The tag runs `.github/workflows/release.yml`,
+which calls the shared `build-rpm.yml` and `build-deb.yml` workflows of FreeMixer/.github: signed
+RPMs for Fedora 44 (x86_64, aarch64) and DEBs for Debian bookworm and trixie (amd64, arm64) are
+published to the FreeMixer channel and attached to the GitHub release. A pull request runs the
+same workflows as a dry run that builds, lints and publishes nothing, then installs the packages
+it built in clean containers and builds a consumer against the development package. Git history
+is the changelog; no changelog file is kept.
