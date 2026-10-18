@@ -65,7 +65,7 @@ jobs:
         run: make test 2>&1 | tee test.log; test "${PIPESTATUS[0]}" -eq 0
         shell: bash
       - name: The packet test ran
-        run: grep -q 'test_packet: ok' test.log
+        run: "grep -q 'test_packet: ok' test.log"
 
   ksy:
     name: diginet.ksy compiles and reads the golden frames
