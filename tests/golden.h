@@ -28,7 +28,7 @@ struct golden {
 static struct golden golden_set[GOLDEN_MAX];
 static int golden_count;
 
-static int hexval(int c)
+static inline int hexval(int c)
 {
 	if (c >= '0' && c <= '9') return c - '0';
 	if (c >= 'a' && c <= 'f') return c - 'a' + 10;
@@ -37,7 +37,7 @@ static int hexval(int c)
 }
 
 /* Loads every frame of `path`; exits 2 (NOT A RESULT) when the file cannot be read. */
-static void golden_load(const char *path)
+static inline void golden_load(const char *path)
 {
 	FILE *fp = fopen(path, "r");
 	if (!fp) {
@@ -75,7 +75,7 @@ static void golden_load(const char *path)
 	fclose(fp);
 }
 
-static const struct golden *golden(const char *name)
+static inline const struct golden *golden(const char *name)
 {
 	for (int i = 0; i < golden_count; i++)
 		if (!strcmp(golden_set[i].name, name))
