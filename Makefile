@@ -62,6 +62,7 @@ test: $(TESTS)
 	$(RUN_TEST) tests/test_transport
 	$(RUN_TEST) tests/test_fdio
 	$(RUN_TEST) tests/test_packet
+	$(RUN_TEST) tests/test_install.sh
 	$(RUN_TEST) tests/public-sources-check.sh
 	$(RUN_TEST) tests/test_public_sources.sh
 
