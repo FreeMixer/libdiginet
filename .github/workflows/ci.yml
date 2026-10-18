@@ -35,10 +35,37 @@ jobs:
       - name: Install, and build a consumer against the installed tree
         run: |
           make install PREFIX=/usr DESTDIR="$PWD/stage"
-          printf '#include <diginet/diginet.h>\nint main(void){return diginet_sum16((const unsigned char*)"\\x01\\x02",2)==3?0:1;}\n' > consumer.c
+          cat > consumer.c <<'EOF'
+          #include <diginet/diginet.h>
+          #include <diginet/transport/diginet_session.h>
+          int main(void)
+          {
+                  struct diginet_session_config c;
+                  diginet_session_config_default(&c);
+                  return diginet_sum16((const unsigned char *)"\x01\x02", 2) == 3 && c.keepalive_ms == 10000 ? 0 : 1;
+          }
+          EOF
           PKG_CONFIG_SYSROOT_DIR="$PWD/stage" PKG_CONFIG_LIBDIR="$PWD/stage/usr/lib/pkgconfig" \
-            sh -c 'cc consumer.c $(pkg-config --cflags --libs libdiginet) -o consumer'
+            sh -c 'cc consumer.c $(pkg-config --cflags --libs libdiginet-transport) -o consumer'
           ./consumer
+
+  host:
+    # The containers above usually cannot create user namespaces, so test_packet reports
+    # SKIP there. On the bare runner it can, once Ubuntu's AppArmor limit is lifted.
+    name: make test on the runner (AF_PACKET in a namespace)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Allow unprivileged user namespaces
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+      - name: make test
+        run: make test 2>&1 | tee test.log; test "${PIPESTATUS[0]}" -eq 0
+        shell: bash
+      - name: The packet test ran
+        run: grep -q 'test_packet: ok' test.log
 
   ksy:
     name: diginet.ksy compiles and reads the golden frames
