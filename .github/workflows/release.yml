@@ -82,5 +82,6 @@ jobs:
         with:
           name: libdiginet-debs-${{ matrix.suite }}-${{ matrix.arch }}
           path: pkgs
+      # the shared workflow uploads each suite's .debs under a directory named after the suite
       - name: Install in a clean debian, build a consumer, check the capability
-        run: sh tests/package-check.sh pkgs
+        run: sh tests/package-check.sh pkgs/${{ matrix.suite }}
