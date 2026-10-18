@@ -61,12 +61,16 @@ tests/test_fdio tests/test_packet: tests/%: tests/%.c tests/desk_emu.c tests/des
 $(PROBE): tools/diginet-probe.c libdiginet-transport.a libdiginet.a
 	$(CC) $(CFLAGS) $(WARN) $(INC) $< libdiginet-transport.a libdiginet.a -o $@
 
-test: $(TESTS)
+tests/test_probe: tests/test_probe.c tests/desk_emu.c tests/desk_emu.h tests/emu_pump.h tests/golden.h libdiginet-transport.a libdiginet.a
+	$(CC) $(CFLAGS) $(WARN) $(INC) $< tests/desk_emu.c libdiginet-transport.a libdiginet.a -o $@
+
+test: $(TESTS) tests/test_probe $(PROBE)
 	$(RUN_TEST) tests/test_frame $(GOLDEN)
 	$(RUN_TEST) tests/test_codec $(GOLDEN)
 	$(RUN_TEST) tests/test_transport
 	$(RUN_TEST) tests/test_fdio
 	$(RUN_TEST) tests/test_packet
+	$(RUN_TEST) tests/test_probe $(PROBE)
 	$(RUN_TEST) tests/test_install.sh
 	$(RUN_TEST) tests/test_workflows.sh
 	$(RUN_TEST) tests/public-sources-check.sh
