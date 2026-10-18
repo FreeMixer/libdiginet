@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 #
-# libdiginet: the DigiNet protocol (frame grammar, codecs, personalities) as libdiginet.a.
-# See BUILDING.md.
+# libdiginet: the DigiNet protocol (frame grammar, codecs, personalities) as libdiginet.a,
+# and the wire under it (packet socket, session) as libdiginet-transport.a. See BUILDING.md.
 
 CC      ?= cc
 AR      ?= ar
@@ -20,21 +20,29 @@ VERSION := $(shell sed -n 's/^\#define DIGINET_VERSION_STRING "\(.*\)"/\1/p' inc
 
 OBJS := src/diginet_frame.o src/diginet_msg.o src/diginet_codec.o src/diginet_decode.o
 
+TOBJS := transport/src/diginet_io.o transport/src/diginet_session.o
+
 TESTS := tests/test_frame tests/test_codec
 
 GOLDEN := tests/golden/frames.txt
 RUN_TEST := tests/run-test.sh
 
-all: libdiginet.a
+all: libdiginet.a libdiginet-transport.a
 
 # -MMD -MP: a header edit rebuilds every object that includes it.
 src/%.o: src/%.c
 	$(CC) $(CFLAGS) $(WARN) -MMD -MP $(INC) -c $< -o $@
 
--include $(OBJS:.o=.d)
+transport/src/%.o: transport/src/%.c
+	$(CC) $(CFLAGS) $(WARN) -MMD -MP $(INC) -c $< -o $@
+
+-include $(OBJS:.o=.d) $(TOBJS:.o=.d)
 
 libdiginet.a: $(OBJS)
 	$(AR) rcs $@ $(OBJS)
+
+libdiginet-transport.a: $(TOBJS)
+	$(AR) rcs $@ $(TOBJS)
 
 tests/test_frame: tests/test_frame.c tests/golden.h libdiginet.a
 	$(CC) $(CFLAGS) $(WARN) $(INC) $< libdiginet.a -o $@
@@ -56,18 +64,18 @@ ksy-check:
 	kaitai-struct-compiler -t python --outdir $(KSY_OUT) protocol/diginet.ksy
 	python3 tests/ksy/check_golden.py $(KSY_OUT) $(GOLDEN)
 
-libdiginet.pc: packaging/libdiginet.pc.in include/diginet/diginet.h
+%.pc: packaging/%.pc.in include/diginet/diginet.h
 	sed -e 's|@PREFIX@|$(PREFIX)|' -e 's|@LIBDIR@|$(LIBDIR)|' -e 's|@INCDIR@|$(INCDIR)|' \
 	    -e 's|@VERSION@|$(VERSION)|' $< > $@
 
-install: libdiginet.a libdiginet.pc
+install: libdiginet.a libdiginet-transport.a libdiginet.pc
 	install -d $(DESTDIR)$(LIBDIR) $(DESTDIR)$(INCDIR)/diginet $(DESTDIR)$(PCDIR)
 	install -m 644 libdiginet.a $(DESTDIR)$(LIBDIR)/
 	install -m 644 include/diginet/*.h $(DESTDIR)$(INCDIR)/diginet/
 	install -m 644 libdiginet.pc $(DESTDIR)$(PCDIR)/
 
 clean:
-	rm -f $(OBJS) $(OBJS:.o=.d) libdiginet.a libdiginet.pc $(TESTS)
+	rm -f $(OBJS) $(OBJS:.o=.d) $(TOBJS) $(TOBJS:.o=.d) libdiginet.a libdiginet-transport.a *.pc $(TESTS)
 	rm -rf build
 
 .PHONY: all test ksy-check install clean

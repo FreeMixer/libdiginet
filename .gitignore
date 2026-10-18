@@ -1,7 +1,7 @@
 *.o
 *.d
 *.a
-/libdiginet.pc
+/*.pc
 /build/
 /tests/test_*
 !/tests/test_*.c
