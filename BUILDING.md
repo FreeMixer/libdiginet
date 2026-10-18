@@ -4,7 +4,7 @@ A hand-kept Makefile, no build system to configure. You need a C11 compiler and 
 Nothing else: no library outside libc.
 
 ```
-make                          # libdiginet.a and libdiginet-transport.a
+make                          # libdiginet.a, libdiginet-transport.a and tools/diginet-probe
 make test                     # the unit suite, the same command CI runs
 make install PREFIX=/usr/local [DESTDIR=...]
 make clean
@@ -43,6 +43,22 @@ that speaks the protocol; `test_transport` drives a session against it on a virt
 socketpair. `test_packet` runs the real `AF_PACKET` path: it enters a user and network
 namespace of its own, where it may open packet sockets on a private loopback; where
 unprivileged namespaces are not allowed it exits 77 and reports SKIP.
+
+`test_probe` runs `tools/diginet-probe` as its own process against the emulator, with the
+wire on descriptor 3 and the operator's answers on stdin, and checks both the probe's output
+and what the desk received.
+
+## diginet-probe
+
+`make install` puts `diginet-probe` in `$(PREFIX)/bin`. It opens a packet socket, which needs
+`cap_net_raw`:
+
+```
+sudo setcap cap_net_raw=ep ./tools/diginet-probe
+```
+
+Every rebuild or copy makes a binary without the capability, so run `setcap` again after it.
+How to run it on a desk is in [docs/probe.md](docs/probe.md).
 
 ## The Kaitai grammar
 
