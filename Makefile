@@ -22,7 +22,7 @@ OBJS := src/diginet_frame.o src/diginet_msg.o src/diginet_codec.o src/diginet_de
 
 TOBJS := transport/src/diginet_io.o transport/src/diginet_session.o
 
-TESTS := tests/test_frame tests/test_codec tests/test_transport
+TESTS := tests/test_frame tests/test_codec tests/test_transport tests/test_fdio tests/test_packet
 
 GOLDEN := tests/golden/frames.txt
 RUN_TEST := tests/run-test.sh
@@ -53,10 +53,15 @@ tests/test_codec: tests/test_codec.c tests/golden.h libdiginet.a
 tests/test_transport: tests/test_transport.c tests/desk_emu.c tests/desk_emu.h tests/golden.h libdiginet-transport.a libdiginet.a
 	$(CC) $(CFLAGS) $(WARN) $(INC) $< tests/desk_emu.c libdiginet-transport.a libdiginet.a -o $@
 
+tests/test_fdio tests/test_packet: tests/%: tests/%.c tests/desk_emu.c tests/desk_emu.h tests/emu_pump.h tests/golden.h libdiginet-transport.a libdiginet.a
+	$(CC) $(CFLAGS) $(WARN) $(INC) $< tests/desk_emu.c libdiginet-transport.a libdiginet.a -o $@
+
 test: $(TESTS)
 	$(RUN_TEST) tests/test_frame $(GOLDEN)
 	$(RUN_TEST) tests/test_codec $(GOLDEN)
 	$(RUN_TEST) tests/test_transport
+	$(RUN_TEST) tests/test_fdio
+	$(RUN_TEST) tests/test_packet
 	$(RUN_TEST) tests/public-sources-check.sh
 	$(RUN_TEST) tests/test_public_sources.sh
 
