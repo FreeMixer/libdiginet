@@ -105,6 +105,7 @@ test: $(TESTS) tests/test_probe $(PROBE)
 	$(RUN_TEST) tests/test_packet
 	$(RUN_TEST) tests/test_probe $(PROBE)
 	$(RUN_TEST) tests/test_install.sh
+	$(RUN_TEST) tests/conformance-packaging.sh
 	$(RUN_TEST) tests/test_workflows.sh
 	$(RUN_TEST) tests/public-sources-check.sh
 	$(RUN_TEST) tests/test_public_sources.sh
