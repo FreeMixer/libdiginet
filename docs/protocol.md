@@ -1,0 +1,168 @@
+# The DigiNet surface protocol (Control|24, ProControl)
+
+What is known about the protocol the Digidesign Control|24 and ProControl speak over Ethernet, gathered from the projects listed below. Every claim names its source. Nothing here was taken from a vendor document. Items marked unknown are settled by captures on a real unit (see the end of this file).
+
+## Sources and how they were read
+
+| Source | Commit | Licence | Used for |
+|---|---|---|---|
+| github.com/phunkyg/ReaControl24, branch `Release` (default) | `2a963e9` (2020-06-26) | GPL-3.0-or-later (`COPYING.md`; header in `control24d.py:22-38`) | The primary protocol reading: daemon `control24d.py`, map `control24map.py`, client `control24osc.py` |
+| ReaControl24, branch `Ftr_Version2` (newest, Py3, multi-device) | `440f29a` (2024-11-19) | same | Multi-device daemon `ReaControl.py`, refactored classes `ReaCommon.py`, ProControl `procontrolosc.py`, `pro_control_map.csv`, `test/emulator.py` |
+| ReaControl24 issues #2–#22 (`gh issue view`) | — | — | Known problems; ProControl display addressing (#12, #22) |
+| github.com/julienfernandez/procontrol-linux (ProControl on Linux, 2026) | `ecf1da8` (2026-09-27) | GPL-3.0-or-later | Evidence from real captures: checksum, e0/e1, keepalive bug, fader echo, rootless raw sockets. Docs are in French |
+| github.com/Davitekk/C24-Engine-Renewed (Control|24 to Pro Tools/HUI, macOS, 2026) | `94d7a3b` (2026-08-16) | **none** (the API reports no licence) | Facts only, no code: `e3` disconnect, meter and ring encodings, display pacing, running status, centre display addresses |
+| neyrinck.com legacy-surface research page | — | — | Neyrinck says "low level ethernet communications, cryptography, CRC error detection" (https://neyrinck.com/v-control-pro/legacy-control-surface-research/) |
+
+Everything was cloned into the scratchpad and only read: no `pip install`, nothing executed. The other forks (lazlooose, scarlton, DanD222, wynanddelport, tubbybassengineer, BlackMaria) were listed. lazlooose's ProControl fixes are already vendored and summarised in procontrol-linux (`docs/displays.md`).
+
+---
+
+## The protocol
+
+### Transport
+
+| Property | Finding | Status | Citation |
+|---|---|---|---|
+| Framing | Raw Ethernet II, EtherType **0x885F**, no IP | Decoded, confirmed by three projects | `control24d.py:42`, `:123`; procontrol-linux `docs/protocol.md` (frame offset table) |
+| Vendor | Source OUI **00:a0:7e** (Digidesign) | Decoded | `control24d.py:101`, `:403` |
+| Capture filter used | `(ether dst <host-mac> or broadcast) and ether[12:2]=0x885f` | — | `control24d.py:69`, `:261` |
+| Link | The ProControl showed **10 Mbit/s half duplex** on a direct link. The Control|24's port is of the same generation | Observed (ProControl); **to verify** on the C24 | procontrol-linux `docs/protocol.md` ("10 Mbit/s half-duplex"), `docs/capture-linux.md:14-26` |
+| Minimum frame | Bodies are padded to the Ethernet minimum (46-byte payload). Bytes after the logical length are padding | Decoded | C24-Engine `motore.py:521`, `:537`; ReaControl's 30-byte receive logs in `pro_control_map.csv` (stale bytes after a 3-byte command) |
+| Broadcast and unicast | The desk **broadcasts** its announce to ff:ff:ff:ff:ff:ff. Everything else is unicast between the desk MAC and the host MAC | Decoded | `control24d.py:396-418`; `ReaControl.py:418-436` (Ftr_Version2) |
+
+**The header** (16 bytes after the 14-byte Ethernet header, big-endian; `control24d.py:137-150`):
+
+| Frame offset | Size | Field (ReaControl name) | Meaning | Status |
+|---|---|---|---|---|
+| 14 | 2 | `numbytes` | 16 + body length (keepalive = 17, bare control frame = 16, announce = 50) | Decoded (`control24d.py:198`, `:221`) |
+| 16 | 2 | `unknown1` / "parity" | **16-bit additive sum of the body.** All 418 of 418 ProControl→host frames matched (procontrol-linux `tools/audit_diginet.py:26-27`, `docs/protocol.md` §Mise à jour). ReaControl's one non-zero value, `0x0244` on the clock-init frame (`control24d.py:415-416`), is exactly the byte sum of that body. ReaControl and C24-Engine send **zero** everywhere else, and the Control|24 accepts it | Strongly supported; whether the C24 verifies host→desk is **unknown** |
+| 18 | 4 | `sendcounter` | The sender's own sequence; incremented by the number of commands in the frame | Decoded (`control24d.py:502-504`) |
+| 22 | 4 | `cmdcounter` | In an ACK: the peer's sequence being acknowledged | Decoded (`control24d.py:439-447`, `:499-500`) |
+| 26 | 2 | `retry` | Non-zero = the desk is retransmitting because it did not get our ACK in time | Partly decoded (`control24d.py:430-437`) |
+| 28 | 1 | `c24cmd` | `0x00` = data, `0xA0` = ACK, `0xE2` = online/wake, `0xE0` = announce (offline), `0xE1` = announce (in session), `0xE3` = disconnect | `a0`/`e2` in `control24common.py:48-51`; `e0`/`e1` in procontrol-linux `tools/procontrold.py:102-115` and `docs/session-reference.md`; `e3` in C24-Engine `motore.py:1069-1079` |
+| 29 | 1 | `numcommands` | Number of commands in the body | Decoded (`control24d.py:438`, `:498`) |
+
+**Discovery and handshake:**
+
+1. The desk broadcasts an `e0` announce about every 7 s when idle (ProControl: 4 in 30 s, 104 in 740 s; procontrol-linux `docs/observations-2026-09-13.md:60,73`). The body is 15 unknown bytes, then a 9-character version (`1.37`), then a 9-character device name: **`CNTRL|24`** for a Control|24, `MAINUNIT` for a ProControl (`control24d.py:168-176`; `ReaControl.py:624-636`; `test/emulator.py:14-17`). C24-Engine reads the version at body bytes 14–24 and the name at 24–32 (`motore.py:1191-1198`).
+2. The host sends `e2` with no body (`control24d.py:414`). ReaControl then sends a clock-clear frame `F0 13 01 30 19 00 ×8 F7` with checksum `02 44` (`control24d.py:415-418`). procontrol-linux showed the clock frame is not needed (`docs/session-reference.md`, "Essai local").
+3. The desk ACKs (`a0`, ack counter = our sequence) and switches its broadcasts to **`e1`, which carries the host MAC**. An `e1` announce is therefore the "online" proof, and an ACK alone is not (procontrol-linux `docs/online-2026-09-13.md:35-36`).
+4. Disconnect is `e3` with no body. It drops the session (C24-Engine `motore.py:1069-1079`, "the CORRECT way to disconnect").
+
+**Acks, sequencing, retransmit:**
+
+- Every desk data frame gets a host ACK. ReaControl sends it about 0.8 ms after receipt (`TIMING_BEFORE_ACKT`, `control24d.py:48`, `:445-447`), with the desk's `sendcounter` in our `cmdcounter` field (`:499-500`). ReaControl does not advance its own counter on an ACK; C24-Engine does (`motore.py:940-948`). Both work, so the desk tolerates either.
+- **Host→desk is stop-and-wait: one frame in flight.** `receive_handler` blocks on `sendlock` until the desk's `a0` arrives (`control24d.py:460-468`). It logs every 100 ms and never gives up or retransmits: `#TODO implement daw-desk retry packets` (`:463`). procontrol-linux kept the same one-frame window (`docs/fader-echo-2026-09-14.md`, "une seule trame en attente d'ACK").
+- When the desk sends a retry frame, ReaControl pauses its own sending for 300 ms (`TIMING_BACKOFF`, `control24d.py:53`, `:433-437`).
+- Batching: up to 48 commands or 314 bytes per frame (`control24d.py:298-299`, `:333-341`). C24-Engine packs whole display batches into one frame and paces display batches about 2 ms apart, "so the desk's controller renders cleanly (no datamoshing)" (`motore.py:531-550`).
+
+**Keepalive (a real bug in the reference):**
+
+- ReaControl sends a keepalive frame (body `00`, ncmds 1) when nothing has been sent for 10 s (`control24d.py:46`, `:285-293`, `:507-511`). But every ACK counts as "sent" (`pcap_last_sent`, `:484`), so a busy surface never sends one.
+- procontrol-linux measured a 48 s gap between keepalives with 225 ACKs in between, and the desk fell back to `e0` (offline). Their fix is a keepalive every 10 s **regardless of ACKs** (`docs/online-2026-09-13.md:136-160`). After the fix the longest gap was 10.048 s and the desk stayed online.
+- C24-Engine pings every 1 s with an empty 16-byte frame, and declares the desk offline after 4 s with no traffic (`motore.py:404`, `:951-959`, `:1023-1034`).
+- The desk-side timeout is **not measured**; "about 45 s" is an upper bound on the ProControl.
+
+### The command set (body)
+
+The body is a byte stream of MIDI-shaped messages. **Running status occurs**: C24-Engine expands it before parsing (`motore.py:1100`, `:1209`). ReaControl instead splits on known status bytes and `F7` (`control24osc.py:1175-1200`), which mis-parses running status. The desk uses the same encoding in both directions for faders, buttons and LEDs.
+
+**Faders (24 motor faders)** — decoded:
+
+- Desk→host and host→desk: `B0 tt MSB (20+tt) LSB`, a 14-bit MIDI CC pair carrying a **10-bit** position: MSB = v>>3, LSB = (v&7)<<4 (`control24osc.py:166-176`, `:916-920`, `:986-1001`).
+  - Example: v = 512 gives `B0 tt 40 (20+tt) 00`.
+  - C24-Engine writes plain 14-bit values (`motore.py:585-590`); same thing, the desk ignores the low 4 bits.
+- procontrol-linux confirmed raw travel of 0–1023 on fader 1 (`docs/protocol.md`, register row "Fader 1 et contact").
+- **Touch:** a strip button `90 09 (40|tt)` on touch, `90 09 tt` on release (`control24map.py:942-946`).
+- **The motor holds a set-point.** ReaControl echoes the hand's position back to the desk at most every 100 ms during a move (`control24osc.py:974-976`, `TIMING_FADER_ECHO :50`), and re-sends the last position on release (`:978-983`).
+  - procontrol-linux filmed the consequence of a late echo: on release the motor drove back to the old set-point, then to the new one (`docs/fader-echo-2026-09-14.md`).
+  - Their fix: echo the exact physical value immediately on release, and refuse any other host value while the cap is touched.
+  - **Status:** encoding decoded. Whether the motor pushes against a touched cap is **unknown** on the C24.
+
+**V-Pots (24) and jog wheel** — decoded:
+
+- Turn: `B0 (40|tt) dd` with delta = dd − 64 (`control24map.py:20-36`; `control24osc.py:890-906`).
+- ReaControl reads a 4th "velocity" byte (`control24osc.py:893`). The ProControl logs show that byte is stale buffer content (`pro_control_map.csv`, rows 5/15/25: arbitrary values), so treat V-Pot input as 3 bytes.
+- The jog wheel is "virtual track 28": `B0 5C dd`, delta = dd − 64 (`control24osc.py:369-373`, `:746-775`; procontrol-linux `docs/protocol.md`, "Le jog `b0 5c valeur`").
+- Scrub and Shuttle are buttons in zone `0x1C`, ids 0x12/0x13 (`control24map.py:746-756`).
+
+**V-Pot LED rings (15 LEDs)** — decoded:
+
+- `F0 13 01 00 (tt | 0x40·LED1) b1 b2 F7`: bit 6 of the address byte lights LED 1, `b1` bits 6..0 are LEDs 2..8, `b2` bits 6..0 are LEDs 9..15.
+- ReaControl ships dot and fill tables (`control24osc.py:783-816`, `:864-882`); C24-Engine computes the same (`motore.py:633-645`).
+
+**Buttons and LEDs** — decoded, about 200 controls mapped:
+
+- **Strip buttons:** `90 bb (40·pressed | tt)`, where `bb` is the button: 00 RecArm, 01 Pan/Send, 02 EQ, 03 Dynamics, 04 Switch/Active, 05 auto-mode, 06 Select, 07 Solo, 08 Mute, 09 fader Touch, 0A Inserts, 0B Peak, 0C SourceToggle, 0D RollOff (`control24map.py:886-962`).
+- **Section buttons:** `90 bb (40·pressed | zone)`, zone 0x18..0x1D (`control24map.py:37-48`, `ChildByteMatch 0x18`):
+
+| Zone | What it holds | Citation |
+|---|---|---|
+| 0x18 | F1–F10, automation enable and mode, Shift/Option/Control/Command modifiers, Show Values/Group/Names/Info, Solo Clear, meter select | `control24map.py:49-330` |
+| 0x19 | Window, zoom presets, Nav/Zoom/SelAdj, cursor keys, Counter Mode | `control24map.py:331-446` |
+| 0x1A | Numeric keypad | `control24map.py:447-505` |
+| 0x1B | Edit mode/function/tools, Bank Left/Nudge/Right, Master Faders, Undo/Save/Esc, Groups | `control24map.py:506-668` |
+| 0x1C | Transport and Talkback | `control24map.py:669-757` |
+| 0x1D | Monitor, inserts, assignment, Sends Flip and A/F–E/J, pans, channel-bar scroll | `control24map.py:758-880` |
+
+- **LEDs** use the same 3-byte message: `90 bb (40·on | zone-or-track)`. ReaControl builds its LED table by walking the input map (`control24osc.py:178-208`, `:1005-1062`). C24-Engine: `send_native_button_led` (`motore.py:552-556`) and a separately discovered LED dictionary (`Control24-LED-Finder/c24_led_dictionary.json`, 1149 lines, facts only).
+- **Per-strip automation LEDs:** `F0 13 01 20 tt bits F7` with write 0x40, touch 0x20, latch 0x10, trim 0x08, read 0x04 (`control24osc.py:1082-1098`).
+- **Counter-mode LEDs:** `F0 13 01 20 19 xx F7` (`control24osc.py:429-456`).
+- **Status:** the map covers what a mixing console needs. Some zone assignments are ReaControl's names and are unverified on a C24.
+
+**Scribble strips** — decoded, with one open point:
+
+- `F0 13 01 40 aa 00 c1 c2 c3 c4 F7`: **4 characters**, plain ASCII, padded with spaces (`control24osc.py:609-673`).
+- Special glyphs: a "dot plus small digit" glyph for `.1`..`.9` is `chr(ord(d) − 26)`, i.e. 0x17..0x1F (`control24osc.py:662-671`).
+- Addresses:
+  - ReaControl writes strip n at `aa = n` (0x00..0x17), plus virtual 24..31 (`control24osc.py:375-376`, `:631`).
+  - C24-Engine writes names at `aa = 0x20+n` (`motore.py:962-975`) and the two centre "channel bar" displays at `0x1D`/`0x1E` (`motore.py:558-565`).
+  - On the ProControl, `00..07` is the top row and `20..27` the bottom row, 8 characters each (issue #12; procontrol-linux `docs/displays.md`).
+  - **What `0x00+n` versus `0x20+n` means on a Control|24 (two layers, two rows, or aliases) is unknown.**
+- `long_scribble` spreads a 96-character message over all strips (`control24osc.py:338-345`).
+
+**Meters** — encoding decoded, physical segment count unknown:
+
+- `F0 13 01 10 ch hi lo F7`, with ch 0..23 left and 0x20+ch right; bus meters start at 24/56 (`control24osc.py:540-606`).
+- The value is a **thermometer bitmask** over 14 bits (two 7-bit bytes). ReaControl's 15-step table is at `:552-568`; C24-Engine refreshes at 25 Hz (`motore.py:913-928`).
+- Whether the desk decays a lit meter on its own (as the X-Touch does) is unknown.
+
+**Counter / timecode** — decoded:
+
+- `F0 13 01 30 19 dots d8 … d1 F7`: 8 seven-segment digits in **reverse** order, plus a dot bitmask. Segment table for 0–9 and a few letters (A b C d E F H h J L o P R S U Y Z -) at `control24osc.py:382-425`, `:459-520`; `motore.py:614-631`.
+- The ProControl uses address `0x09` and device byte `00` instead of `0x19` and `01` (procontrol-linux `docs/displays.md`).
+
+**System and diagnostic family `F0 13 xx 70 …`** — dangerous:
+
+- Device-name write to the desk's memory: `F0 13 01 70 00 6E <8 chars> F7` (C24-Engine `motore.py:566-574`).
+- On the ProControl the same family reads firmware memory (`70 00` comm processor, `70 01` faders) and produced spurious touch events (procontrol-linux `docs/protocol.md`, top section; `docs/fader-touch-recovery-2026-09-21.md`).
+- A host must never send this family; the library refuses to encode it.
+
+**The device byte** after `F0 13` is `01` for the Control|24 and `00` for the ProControl main unit (issue #22 trace `f0 13 00 40 …`; procontrol-linux `docs/protocol.md`). This is a per-device personality, not a constant.
+
+### Sources and licences
+
+ReaControl24 and procontrol-linux are GPL-3.0-or-later, like this library. C24-Engine-Renewed carries no licence, so only facts were taken from it (byte layouts, timings), never code or tables. libdiginet is a new implementation written from this description, not a port: the byte grammar lives in `diginet.ksy`, each field cited to the sources above.
+
+---
+
+
+## Open questions and how to settle them on a unit
+
+| # | Unknown | Resolve by |
+|---|---|---|
+| R1 | Which desk it is. The **Control|24** (2001, 10BASE-T, Focusrite preamps) or the **C|24** (2007, the successor; protocol unverified)? The announce name settles it | M0: read the device name in the announce (`CNTRL|24` expected) and the version |
+| R2 | Link speed and duplex. A modern NIC may not negotiate 10/half | M0: `/sys/class/net/*/speed,duplex`; if bad, use a cheap 10/100 unmanaged switch. Keep it off the REAC interfaces |
+| R3 | Checksum: does the C24 verify host→desk? (Neyrinck mentions "CRC") | M1: send the sum, and if no ACK, retry with zero. Also check that desk frames in the M0 pcap match sum16 |
+| R4 | Does the motor fight a touched cap? Does it go back to its set-point on release? | M1 extension: command 25 %, grab the cap, move it, release, with no echo. Feel and film. Then repeat with an echo on release |
+| R5 | Keepalive and offline timeout | M1: stretch the keepalive interval 10 → 20 → 40 s and watch `e1`→`e0` and the "Offline" display |
+| R6 | Scribble `0x00+n` versus `0x20+n`: layers, rows or aliases; the glyph set beyond ASCII | M1: write different text to both, then sweep bytes 0x00–0x7F onto one strip |
+| R7 | Meter segment count, and whether a lit meter decays on its own | Send each bitmask step to strip 1 and count the LEDs; hold a value for 10 s |
+| R8 | ACK window: is one frame in flight required, or does the desk accept a burst? What is the safe frame size? | Load test in the probe: N commands per frame, measure retries and display garbling |
+| R9 | Running status and multi-command frames from the desk | The M1 logs; the parser handles both |
+| R10 | Gaps in the button map, and which keys light | Press every key during M1 (decode log); walk LEDs over zones 0x18–0x1D (Davitekk's LED-finder approach, reimplemented) |
+| R11 | Does Pro Tools do anything we skip (the "cryptography" in Neyrinck's note)? | **Optional:** capture ReaControl24 driving the desk once, on a separate test machine, never the rig. That is the only way to see a known-working host conversation; Pro Tools on any machine would be even better |
+| R12 | Analogue section: which buttons reach the preamps, and whether they are safe | A physical check on the unit; never inferred from LEDs |
+| R13 | Two hosts on one desk (a shadow console, or a second daemon) | The claim socket (§9) plus the transport refusing to send `e2` when it sees a foreign `e1` |
+| R14 | The daemon binary loses `cap_net_raw` on reinstall (ops trap 2026-10-08) | `getcap` check in `ExecStartPre`; `%caps` in the RPM |
+
