@@ -59,8 +59,9 @@ to open a packet socket, cap_net_raw.
 %make_build CFLAGS="%{optflags}" LDFLAGS="%{build_ldflags}" shared
 
 %install
-%make_install PREFIX=%{_prefix} LIBDIR=%{_libdir} INCDIR=%{_includedir} BINDIR=%{_bindir} \
-  DATADIR=%{_datadir} MANDIR=%{_mandir} install-shared
+# not %%make_install: it names the `install` target (the static archives) as well
+make DESTDIR=%{buildroot} PREFIX=%{_prefix} LIBDIR=%{_libdir} INCDIR=%{_includedir} \
+  BINDIR=%{_bindir} DATADIR=%{_datadir} MANDIR=%{_mandir} install-shared
 
 %check
 make CFLAGS="%{optflags}" test
