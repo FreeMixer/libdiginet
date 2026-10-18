@@ -147,6 +147,22 @@ ReaControl24 and procontrol-linux are GPL-3.0-or-later, like this library. C24-E
 ---
 
 
+## Where the sources are silent: what the library assumes
+
+Each point below is a choice libdiginet makes because no source settles it. Each is one
+constant or one function in the code, so a capture that contradicts it is a one-line change.
+
+| # | Point | What the library does | Settled by |
+|---|---|---|---|
+| A1 | Ring LED order inside `b1`/`b2` | "bits 6..0 are LEDs 2..8" read in order: bit 6 = LED 2, bit 0 = LED 8; bit 6 = LED 9, bit 0 = LED 15 | Light LED 2 alone on strip 1 |
+| A2 | Meter bit order | Bit 0 of `lo` is the bottom segment; n segments lit = the n lowest bits of the 14 | R7 |
+| A3 | Seven-segment bits | Bit 0 = a, 1 = b, 2 = c, 3 = d, 4 = e, 5 = f, 6 = g (the common hardware order) | Write each single bit to one digit |
+| A4 | Counter digit order | The API takes the digits left to right as shown; the wire carries them right to left (`d8 … d1`) | Write `12345678` |
+| A5 | Counter dots | A data byte holds 7 bits, so at most 7 of the 8 digits can carry a dot: bit k is the dot of the k-th digit on the wire (k = 0 the rightmost). A dot on the leftmost digit is refused | Write each dot bit alone |
+| A6 | Host MAC in the `e1` body | Searched for anywhere in the 15 unknown leading bytes; the probe prints the offset where it was found | M1 |
+| A7 | `numcommands` | Counts commands as the encoders make them: a fader move (`B0 tt MSB (20+tt) LSB`) is one command | M1 logs of desk frames |
+| A8 | Counter sequence | A frame carries the sender's counter after adding its own commands; an ACK echoes it | M1 |
+
 ## Open questions and how to settle them on a unit
 
 | # | Unknown | Resolve by |
