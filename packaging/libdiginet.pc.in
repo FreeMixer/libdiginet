@@ -1,0 +1,9 @@
+prefix=@PREFIX@
+libdir=@LIBDIR@
+includedir=@INCDIR@
+
+Name: libdiginet
+Description: DigiNet protocol for the Digidesign Control|24 and ProControl surfaces
+Version: @VERSION@
+Libs: -L${libdir} -ldiginet
+Cflags: -I${includedir}
