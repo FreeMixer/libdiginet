@@ -18,7 +18,7 @@ DESTDIR ?=
 
 VERSION := $(shell sed -n 's/^\#define DIGINET_VERSION_STRING "\(.*\)"/\1/p' include/diginet/diginet.h)
 
-OBJS := src/diginet_frame.o src/diginet_msg.o
+OBJS := src/diginet_frame.o src/diginet_msg.o src/diginet_codec.o src/diginet_decode.o
 
 TESTS := tests/test_frame
 
