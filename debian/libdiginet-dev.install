@@ -1,0 +1,6 @@
+usr/include/diginet
+usr/lib/*/libdiginet.so
+usr/lib/*/libdiginet-transport.so
+usr/lib/*/pkgconfig/libdiginet.pc
+usr/lib/*/pkgconfig/libdiginet-transport.pc
+usr/share/diginet/diginet.ksy
