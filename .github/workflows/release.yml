@@ -1,0 +1,86 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
+name: release
+
+# Packages through the shared release workflows of FreeMixer/.github. A tag v<version> builds signed
+# RPMs (Fedora 44, x86_64 and aarch64) and DEBs (Debian bookworm and trixie, amd64 and arm64),
+# publishes them to the FreeMixer channel and attaches them to the GitHub release. A pull request or
+# any other run is a dry run: it builds and lints everything and publishes nothing.
+#
+# Either way, the packages the run built are then installed in clean containers of every release and
+# architecture, and a consumer is built against the development package (tests/package-check.sh).
+
+on:
+  push:
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+  actions: read
+
+jobs:
+  rpm:
+    uses: FreeMixer/.github/.github/workflows/build-rpm.yml@v1
+    with:
+      package-name: libdiginet
+      binary-names: libdiginet libdiginet-devel diginet-tools
+      publish: ${{ github.ref_type == 'tag' }}
+      needs-mod-host: false
+      channel-deps: false
+    secrets: inherit
+
+  # after the RPMs: both publish into one tree, and a push that loses a race is refused
+  deb:
+    needs: rpm
+    if: ${{ !cancelled() }}
+    uses: FreeMixer/.github/.github/workflows/build-deb.yml@v1
+    with:
+      package-name: libdiginet
+      binary-names: libdiginet0 libdiginet-transport0 libdiginet-dev diginet-tools
+      publish: ${{ github.ref_type == 'tag' }}
+      dependencies: ''
+      requires: ''
+      channel-deps: false
+    secrets: inherit
+
+  install-rpm:
+    name: Install check (fc44, ${{ matrix.arch }})
+    needs: rpm
+    runs-on: ${{ matrix.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    timeout-minutes: 20
+    container: fedora:44
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x86_64, aarch64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: libdiginet-rpms-${{ matrix.arch }}
+          path: pkgs
+      - name: Install in a clean fedora, build a consumer, check the capability
+        run: sh tests/package-check.sh pkgs
+
+  install-deb:
+    name: Install check (${{ matrix.suite }}, ${{ matrix.arch }})
+    needs: deb
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    timeout-minutes: 20
+    container: debian:${{ matrix.suite }}
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [bookworm, trixie]
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: libdiginet-debs-${{ matrix.suite }}-${{ matrix.arch }}
+          path: pkgs
+      - name: Install in a clean debian, build a consumer, check the capability
+        run: sh tests/package-check.sh pkgs
