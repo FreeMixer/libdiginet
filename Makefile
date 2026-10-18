@@ -77,11 +77,12 @@ ksy-check:
 	sed -e 's|@PREFIX@|$(PREFIX)|' -e 's|@LIBDIR@|$(LIBDIR)|' -e 's|@INCDIR@|$(INCDIR)|' \
 	    -e 's|@VERSION@|$(VERSION)|' $< > $@
 
-install: libdiginet.a libdiginet-transport.a libdiginet.pc
-	install -d $(DESTDIR)$(LIBDIR) $(DESTDIR)$(INCDIR)/diginet $(DESTDIR)$(PCDIR)
-	install -m 644 libdiginet.a $(DESTDIR)$(LIBDIR)/
+install: libdiginet.a libdiginet-transport.a libdiginet.pc libdiginet-transport.pc
+	install -d $(DESTDIR)$(LIBDIR) $(DESTDIR)$(INCDIR)/diginet/transport $(DESTDIR)$(PCDIR)
+	install -m 644 libdiginet.a libdiginet-transport.a $(DESTDIR)$(LIBDIR)/
 	install -m 644 include/diginet/*.h $(DESTDIR)$(INCDIR)/diginet/
-	install -m 644 libdiginet.pc $(DESTDIR)$(PCDIR)/
+	install -m 644 include/diginet/transport/*.h $(DESTDIR)$(INCDIR)/diginet/transport/
+	install -m 644 libdiginet.pc libdiginet-transport.pc $(DESTDIR)$(PCDIR)/
 
 clean:
 	rm -f $(OBJS) $(OBJS:.o=.d) $(TOBJS) $(TOBJS:.o=.d) libdiginet.a libdiginet-transport.a *.pc $(TESTS)
