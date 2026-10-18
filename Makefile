@@ -41,6 +41,8 @@ tests/test_frame: tests/test_frame.c tests/golden.h libdiginet.a
 
 test: $(TESTS)
 	$(RUN_TEST) tests/test_frame $(GOLDEN)
+	$(RUN_TEST) tests/public-sources-check.sh
+	$(RUN_TEST) tests/test_public_sources.sh
 
 # The Kaitai grammar compiles, and the parser it generates reads the golden frames with
 # the values the C suite asserts. Needs kaitai-struct-compiler 0.11 and the Python runtime.
