@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include <diginet/diginet.h>
+#include <diginet/diginet_codec.h>
 
 static uint16_t rd16(const uint8_t *p) { return (uint16_t)((p[0] << 8) | p[1]); }
 static uint32_t rd32(const uint8_t *p)
@@ -100,6 +101,8 @@ int diginet_frame_build(uint8_t *buf, size_t cap,
 		return DIGINET_E_ARG;
 	if (body_len > DIGINET_MAX_BODY_LEN)
 		return DIGINET_E_LENGTH;
+	if (diginet_body_check(body, body_len) != DIGINET_OK)
+		return DIGINET_E_REFUSED;   /* F0 13 xx 70 writes the desk's memory */
 	size_t len = DIGINET_BODY_OFFSET + body_len;
 	size_t out = len < DIGINET_MIN_FRAME_LEN ? DIGINET_MIN_FRAME_LEN : len;
 	if (cap < out)

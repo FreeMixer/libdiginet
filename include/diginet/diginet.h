@@ -105,7 +105,8 @@ int diginet_frame_parse(const uint8_t *buf, size_t len, struct diginet_frame *f)
 
 /* Build a frame into buf: Ethernet header, header `h` (its numbytes and sum are ignored and
  * computed here), body, zero padding to 60 bytes. Returns the frame length, or a negative
- * code (DIGINET_E_SPACE when cap is too small). */
+ * code: DIGINET_E_SPACE when cap is too small, DIGINET_E_REFUSED when the body holds an
+ * F0 13 xx 70 message (see diginet_codec.h). */
 int diginet_frame_build(uint8_t *buf, size_t cap,
 			const uint8_t dst[DIGINET_MAC_LEN], const uint8_t src[DIGINET_MAC_LEN],
 			const struct diginet_header *h, const uint8_t *body, size_t body_len,
