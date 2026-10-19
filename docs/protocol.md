@@ -2,18 +2,18 @@
 
 What is known about the protocol the Digidesign Control|24 and ProControl speak over Ethernet, gathered from the projects listed below. Every claim names its source. Nothing here was taken from a vendor document. Items marked unknown are settled by captures on a real unit (see the end of this file).
 
-## Sources and how they were read
+## Sources
 
-| Source | Commit | Licence | Used for |
+Line citations below are to these commits.
+
+| Source | URL | What it covers | What here rests on it |
 |---|---|---|---|
-| github.com/phunkyg/ReaControl24, branch `Release` (default) | `2a963e9` (2020-06-26) | GPL-3.0-or-later (`COPYING.md`; header in `control24d.py:22-38`) | The primary protocol reading: daemon `control24d.py`, map `control24map.py`, client `control24osc.py` |
-| ReaControl24, branch `Ftr_Version2` (newest, Py3, multi-device) | `440f29a` (2024-11-19) | same | Multi-device daemon `ReaControl.py`, refactored classes `ReaCommon.py`, ProControl `procontrolosc.py`, `pro_control_map.csv`, `test/emulator.py` |
-| ReaControl24 issues #2–#22 (`gh issue view`) | — | — | Known problems; ProControl display addressing (#12, #22) |
-| github.com/julienfernandez/procontrol-linux (ProControl on Linux, 2026) | `ecf1da8` (2026-09-27) | GPL-3.0-or-later | Evidence from real captures: checksum, e0/e1, keepalive bug, fader echo, rootless raw sockets. Docs are in French |
-| github.com/Davitekk/C24-Engine-Renewed (Control|24 to Pro Tools/HUI, macOS, 2026) | `94d7a3b` (2026-08-16) | **none** (the API reports no licence) | Facts only, no code: `e3` disconnect, meter and ring encodings, display pacing, running status, centre display addresses |
-| neyrinck.com legacy-surface research page | — | — | Neyrinck says "low level ethernet communications, cryptography, CRC error detection" (https://neyrinck.com/v-control-pro/legacy-control-surface-research/) |
-
-Everything was cloned into the scratchpad and only read: no `pip install`, nothing executed. The other forks (lazlooose, scarlton, DanD222, wynanddelport, tubbybassengineer, BlackMaria) were listed. lazlooose's ProControl fixes are already vendored and summarised in procontrol-linux (`docs/displays.md`).
+| ReaControl24, branch `Release`, commit `2a963e9` (2020-06-26). GPL-3.0-or-later | https://github.com/phunkyg/ReaControl24 | A Control\|24 daemon and OSC client for Reaper: daemon `control24d.py`, control map `control24map.py`, client `control24osc.py` | The header fields and their names, `e2` and `a0`, the counters, stop-and-wait and back-off, the batching limits, the 10 s keepalive and its bug, the button and LED map, and the fader, V-Pot, ring, meter, scribble, automation-LED and counter encodings |
+| ReaControl24, branch `Ftr_Version2`, commit `440f29a` (2024-11-19) | https://github.com/phunkyg/ReaControl24/tree/Ftr_Version2 | The newer multi-device daemon `ReaControl.py`, `ReaCommon.py`, the ProControl client `procontrolosc.py`, `pro_control_map.csv`, `test/emulator.py` | The announce layout, broadcast and unicast, the ProControl's name, the stale fourth V-Pot byte |
+| ReaControl24 issues #2 to #22 | https://github.com/phunkyg/ReaControl24/issues | Problems users reported | ProControl display addressing (#12, #22) and its device byte |
+| procontrol-linux, commit `ecf1da8` (2026-09-27). GPL-3.0-or-later; the documents are in French | https://github.com/julienfernandez/procontrol-linux | A ProControl driver for Linux, with captures and measurements from a real unit. It carries lazlooose's ProControl display fixes (`docs/displays.md`) | The header sum, `e0`/`e1` and the host MAC in `e1`, the keepalive bug and its fix, the fader echo, the 10 Mbit/s half-duplex link, the ProControl counter and display addresses, the dangers of the `0x70` family |
+| C24-Engine-Renewed, commit `94d7a3b` (2026-08-16). No licence | https://github.com/Davitekk/C24-Engine-Renewed | Control\|24 tools for macOS that drive a real desk: a Pro Tools HUI bridge (`Control24-Engine/motore.py`), CamillaDSP and media modes (`Camilla24/`, `HUI-OS/`), a calculator on the keypad and counter (`Calculator24/`), an LED finder (`Control24-LED-Finder/`) | `e3`, the minimum frame, the ping and watchdog timings, running status, display pacing, the 14-bit fader, the meter and ring encodings, the centre displays, the device-name write |
+| Neyrinck, legacy control surface research | https://neyrinck.com/v-control-pro/legacy-control-surface-research/ | Neyrinck's one-line description of the surfaces' link: "low level ethernet communications, cryptography, CRC error detection" | R3 and R11 |
 
 ---
 
