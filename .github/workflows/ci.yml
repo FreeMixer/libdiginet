@@ -1,5 +1,9 @@
 name: ci
-on: [push, pull_request]
+# A push runs on main only; a pull request already runs its branch.
+on:
+  push:
+    branches: [main]
+  pull_request:
 jobs:
   test:
     name: build + test (${{ matrix.image }})
