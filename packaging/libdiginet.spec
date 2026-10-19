@@ -93,3 +93,25 @@ make CFLAGS="%{optflags}" test
 %{_mandir}/man1/diginet-probe.1*
 
 %changelog
+* Mon Oct 19 2026 Pau Aliagas <linuxnow@gmail.com> - 0.1.0-1
+- First release: a C library for the Ethernet protocol of the Digidesign
+  Control|24 and ProControl surfaces. Not yet tried on a desk.
+- libdiginet: the frame grammar (protocol/diginet.ksy, installed with the
+  development package), parsing and building of frames with the header
+  sum, and the desk's announce.
+- Encoders and decoders for the motor faders and their touch sense,
+  buttons and lamps, V-Pots and the jog wheel, the V-Pot LED rings,
+  meters, the automation and counter-mode LEDs, the scribble strips and
+  the eight-digit counter, with one personality each for the Control|24
+  and the ProControl.
+- The system message family that writes the desk's own memory
+  (F0 13 xx 70) is refused by the encoders, the body check and the frame
+  builder.
+- libdiginet-transport: the packet socket and one host's session with a
+  desk: discovery, wake, ACKs, one frame in flight with retransmission,
+  back-off after a desk retry, a keepalive on its own clock, a queue
+  where a newer value replaces a queued one, pacing of display writes,
+  and no wake while the desk is in another host's session.
+- diginet-tools: diginet-probe, a first test on a real desk (wake it,
+  move a fader, light a lamp, write a scribble strip, log every press),
+  installed with cap_net_raw, and its manual page.
