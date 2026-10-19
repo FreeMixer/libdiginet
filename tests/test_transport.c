@@ -262,6 +262,12 @@ static void test_ack(void)
 	CHK(E.acks_from_host == acks0 + 101 && E.last_acked_by_host == c);
 	CHK(data_frames == 100 && S_->stats.rx_duplicates == 1 && S_->stats.rx_desk_retries == 1);
 	uint64_t retry_at = now;
+	/* A keepalive due while the back-off holds is due when the back-off ends, so a poll
+	 * loop waits until then instead of spinning on a deadline of now. */
+	uint64_t next_ka = S_->next_keepalive_us;
+	S_->next_keepalive_us = now;
+	CHK(diginet_session_deadline(S_, now) == retry_at + 300 * MS);
+	S_->next_keepalive_us = next_ka;
 	struct diginet_cmd fc = fader(3, 700);
 	CHK(diginet_session_submit(S_, &fc) == 0);
 	run(290 * MS, 1 * MS, NULL);

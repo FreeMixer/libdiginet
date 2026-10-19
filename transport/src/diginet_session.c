@@ -471,8 +471,11 @@ uint64_t diginet_session_deadline(const struct diginet_session *s, uint64_t now)
 		d = min64(d, s->wake_sent_us + ms(s->cfg.wake_timeout_ms));
 	if (s->state == DIGINET_S_ONLINE) {
 		d = min64(d, s->last_rx_us + ms(s->cfg.offline_ms));
+		/* A keepalive due during a back-off goes when the back-off ends: tick() holds it
+		 * until then, so the deadline is then too, or a poll loop would spin. */
 		if (!s->inflight)
-			d = min64(d, s->next_keepalive_us);
+			d = min64(d, s->next_keepalive_us > s->backoff_until_us ? s->next_keepalive_us
+									      : s->backoff_until_us);
 	}
 	if (s->inflight)
 		return min64(d, s->inflight_sent_us + ms(s->cfg.ack_timeout_ms));
