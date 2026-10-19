@@ -8,12 +8,14 @@ What is known about the protocol, and what is still open, is in [docs/protocol.m
 
 ## Status
 
-Early: the protocol is described; the code follows in this order.
+Early, and not yet tried on a desk. In the tree:
 
-1. `diginet.ksy`, the formal byte grammar, with golden-frame tests.
+1. `protocol/diginet.ksy`, the formal byte grammar, with golden-frame tests.
 2. The codecs and the Control|24 / ProControl personalities.
-3. The transport: session state machine, ack window, keepalive, retransmit, latest-wins coalescing.
-4. `diginet-probe`, a command-line tool for a first test on a real desk: wake it, move a fader, light a lamp, write a scribble strip, log every press.
+3. The transport: session state machine, ack window, keepalive, retransmit, latest-wins coalescing, all tested against a desk emulator.
+4. `diginet-probe`, a command-line tool for a first test on a real desk: wake it, move a fader, light a lamp, write a scribble strip, log every press. See [docs/probe.md](docs/probe.md).
+
+Building and testing: [BUILDING.md](BUILDING.md).
 
 ## Safety
 

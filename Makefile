@@ -27,7 +27,9 @@ TESTS := tests/test_frame tests/test_codec tests/test_transport tests/test_fdio 
 GOLDEN := tests/golden/frames.txt
 RUN_TEST := tests/run-test.sh
 
-all: libdiginet.a libdiginet-transport.a
+PROBE := tools/diginet-probe
+
+all: libdiginet.a libdiginet-transport.a $(PROBE)
 
 # -MMD -MP: a header edit rebuilds every object that includes it.
 src/%.o: src/%.c
@@ -56,12 +58,19 @@ tests/test_transport: tests/test_transport.c tests/desk_emu.c tests/desk_emu.h t
 tests/test_fdio tests/test_packet: tests/%: tests/%.c tests/desk_emu.c tests/desk_emu.h tests/emu_pump.h tests/golden.h libdiginet-transport.a libdiginet.a
 	$(CC) $(CFLAGS) $(WARN) $(INC) $< tests/desk_emu.c libdiginet-transport.a libdiginet.a -o $@
 
-test: $(TESTS)
+$(PROBE): tools/diginet-probe.c libdiginet-transport.a libdiginet.a
+	$(CC) $(CFLAGS) $(WARN) $(INC) $< libdiginet-transport.a libdiginet.a -o $@
+
+tests/test_probe: tests/test_probe.c tests/desk_emu.c tests/desk_emu.h tests/emu_pump.h tests/golden.h libdiginet-transport.a libdiginet.a
+	$(CC) $(CFLAGS) $(WARN) $(INC) $< tests/desk_emu.c libdiginet-transport.a libdiginet.a -o $@
+
+test: $(TESTS) tests/test_probe $(PROBE)
 	$(RUN_TEST) tests/test_frame $(GOLDEN)
 	$(RUN_TEST) tests/test_codec $(GOLDEN)
 	$(RUN_TEST) tests/test_transport
 	$(RUN_TEST) tests/test_fdio
 	$(RUN_TEST) tests/test_packet
+	$(RUN_TEST) tests/test_probe $(PROBE)
 	$(RUN_TEST) tests/test_install.sh
 	$(RUN_TEST) tests/test_workflows.sh
 	$(RUN_TEST) tests/public-sources-check.sh
@@ -79,15 +88,17 @@ ksy-check:
 	sed -e 's|@PREFIX@|$(PREFIX)|' -e 's|@LIBDIR@|$(LIBDIR)|' -e 's|@INCDIR@|$(INCDIR)|' \
 	    -e 's|@VERSION@|$(VERSION)|' $< > $@
 
-install: libdiginet.a libdiginet-transport.a libdiginet.pc libdiginet-transport.pc
+install: libdiginet.a libdiginet-transport.a $(PROBE) libdiginet.pc libdiginet-transport.pc
 	install -d $(DESTDIR)$(LIBDIR) $(DESTDIR)$(INCDIR)/diginet/transport $(DESTDIR)$(PCDIR)
 	install -m 644 libdiginet.a libdiginet-transport.a $(DESTDIR)$(LIBDIR)/
 	install -m 644 include/diginet/*.h $(DESTDIR)$(INCDIR)/diginet/
 	install -m 644 include/diginet/transport/*.h $(DESTDIR)$(INCDIR)/diginet/transport/
 	install -m 644 libdiginet.pc libdiginet-transport.pc $(DESTDIR)$(PCDIR)/
+	install -d $(DESTDIR)$(BINDIR)
+	install -m 755 $(PROBE) $(DESTDIR)$(BINDIR)/
 
 clean:
-	rm -f $(OBJS) $(OBJS:.o=.d) $(TOBJS) $(TOBJS:.o=.d) libdiginet.a libdiginet-transport.a *.pc $(TESTS)
+	rm -f $(OBJS) $(OBJS:.o=.d) $(TOBJS) $(TOBJS:.o=.d) libdiginet.a libdiginet-transport.a *.pc $(TESTS) tests/test_probe $(PROBE)
 	rm -rf build
 
 .PHONY: all test ksy-check install clean
