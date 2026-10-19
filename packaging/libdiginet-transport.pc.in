@@ -1,0 +1,10 @@
+prefix=@PREFIX@
+libdir=@LIBDIR@
+includedir=@INCDIR@
+
+Name: libdiginet-transport
+Description: DigiNet wire layer: packet socket, session, keepalive, retransmit, pacing
+Version: @VERSION@
+Requires.private: libdiginet
+Libs: -L${libdir} -ldiginet-transport -ldiginet
+Cflags: -I${includedir}

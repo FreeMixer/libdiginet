@@ -4,7 +4,7 @@ A hand-kept Makefile, no build system to configure. You need a C11 compiler and 
 Nothing else: no library outside libc.
 
 ```
-make                          # libdiginet.a
+make                          # libdiginet.a and libdiginet-transport.a
 make test                     # the unit suite, the same command CI runs
 make install PREFIX=/usr/local [DESTDIR=...]
 make clean
@@ -13,11 +13,17 @@ make clean
 The code is plain C11 built with `-Wall -Wextra -Werror`, so a warning is a build failure.
 `CC` and `CFLAGS` can be overridden on the command line; the warning flags are kept even then.
 
-`make install` copies the headers to `$(PREFIX)/include/diginet/`, the archive to
-`$(PREFIX)/lib` (`LIBDIR=` to change it) and a pkg-config file, so a consumer builds with:
+Two libraries come out of one tree:
+
+- `libdiginet`: the protocol. Frame grammar, codecs, personalities. No socket, no clock.
+- `libdiginet-transport`: the wire. The packet socket and the session (discovery, wake,
+  ACKs, retransmit, keepalive, coalescing, pacing). It links `libdiginet`.
+
+`make install` copies the headers to `$(PREFIX)/include/diginet/`, the archives to
+`$(PREFIX)/lib` (`LIBDIR=` to change it) and two pkg-config files, so a consumer builds with:
 
 ```
-cc app.c $(pkg-config --cflags --libs libdiginet)
+cc app.c $(pkg-config --cflags --libs libdiginet-transport)
 ```
 
 ## Tests
@@ -30,6 +36,13 @@ The golden frames are in `tests/golden/frames.txt`, one whole Ethernet frame per
 The C suite reads that file and checks every frame against the values `docs/protocol.md`
 gives. The same file feeds the Kaitai check below, so the two readings of the grammar cannot
 drift apart.
+
+The transport suite needs no desk and no privileges. `tests/desk_emu.c` is a desk emulator
+that speaks the protocol; `test_transport` drives a session against it on a virtual clock
+(minutes of desk time in milliseconds), `test_fdio` does the same on the real clock over a
+socketpair. `test_packet` runs the real `AF_PACKET` path: it enters a user and network
+namespace of its own, where it may open packet sockets on a private loopback; where
+unprivileged namespaces are not allowed it exits 77 and reports SKIP.
 
 ## The Kaitai grammar
 
@@ -46,5 +59,6 @@ and the Python runtime (`pip install kaitaistruct==0.11`). CI runs it in a Debia
 ## CI
 
 `.github/workflows/ci.yml` runs `make`, `make test` and `make install` in fedora:44,
-debian:bookworm and debian:trixie containers, and `make ksy-check` in a Debian container with
-the compiler installed.
+debian:bookworm and debian:trixie containers, `make test` once more on the bare runner (where
+the namespace test can run), and `make ksy-check` in a Debian container with the compiler
+installed.
