@@ -321,8 +321,11 @@ static void test_counter(void)
 	struct diginet_event ev;
 	uint8_t seg[8], dots;
 
-	CHK(diginet_seg7('0') == 0x3f && diginet_seg7('8') == 0x7f && diginet_seg7('-') == 0x40);
-	CHK(diginet_seg7('1') == 0x06 && diginet_seg7('7') == 0x07 && diginet_seg7(' ') == 0);
+	/* Bit 6 = a ... bit 0 = g, the patterns C24-Engine-Renewed drives the desk with
+	 * (docs/protocol.md, A3). */
+	CHK(diginet_seg7('0') == 0x7e && diginet_seg7('8') == 0x7f && diginet_seg7('-') == 0x01);
+	CHK(diginet_seg7('1') == 0x30 && diginet_seg7('7') == 0x70 && diginet_seg7(' ') == 0);
+	CHK(diginet_seg7('2') == 0x6d && diginet_seg7('E') == 0x4f && diginet_seg7('r') == 0x05);
 	CHK(diginet_seg7('X') == -1 && diginet_seg7('M') == -1);
 	const char *letters = "AbCdEFHhJLoPrSUYZ-";
 	for (const char *l = letters; *l; l++)
@@ -330,31 +333,44 @@ static void test_counter(void)
 
 	/* Shown left to right as 1 2 3 4 5 6 7 8; on the wire 8 first. */
 	CHK(diginet_counter_text("12345678", seg, &dots) == 0 && dots == 0);
-	CHK(seg[0] == 0x06 && seg[7] == 0x7f);
+	CHK(seg[0] == 0x30 && seg[7] == 0x7f);
 	CHK(diginet_counter_encode(C24, seg, dots, &c) == 0 &&
-	    bytes_are(&c, "f0 13 01 30 19 00 7f 07 7d 6d 66 4f 5b 06 f7"));
+	    bytes_are(&c, "f0 13 01 30 19 00 7f 70 5f 5b 33 79 6d 30 f7"));
 	CHK(c.display && c.key == DIGINET_KEY(DIGINET_KEY_COUNTER, 0x19));
 	ev = one_event(C24, &c);
 	CHK(ev.kind == DIGINET_EV_COUNTER && ev.addr == 0x19 && !memcmp(ev.seg, seg, 8) && ev.dots == 0);
 
-	/* Dots: bit k is the k-th digit on the wire, so the rightmost digit is bit 0. */
+	/* Dots: bit k is display digit k from the left, so the leftmost digit is bit 0 and the
+	 * rightmost has no bit (A5). */
 	CHK(diginet_counter_text("1.2.3.4", seg, &dots) == 0);
-	CHK(seg[0] == 0 && seg[4] == 0x06 && seg[7] == 0x66);
+	CHK(seg[0] == 0 && seg[4] == 0x30 && seg[7] == 0x33);
 	CHK(dots == (DIGINET_COUNTER_DOT(4) | DIGINET_COUNTER_DOT(5) | DIGINET_COUNTER_DOT(6)));
-	CHK(dots == 0x0e);
-	CHK(diginet_counter_text("12345678.", seg, &dots) == 0 && dots == 0x01);
+	CHK(dots == 0x70);
+	CHK(diginet_counter_text("1.2345678", seg, &dots) == 0 && dots == 0x01);
 	CHK(diginet_counter_encode(C24, seg, dots, &c) == 0);
 	ev = one_event(C24, &c);
-	CHK(ev.dots == 0x01 && ev.seg[7] == 0x7f);
-	CHK(diginet_counter_text("1.2345678", seg, &dots) == DIGINET_E_RANGE);  /* leftmost dot */
+	CHK(ev.dots == 0x01 && ev.seg[0] == 0x30 && ev.seg[7] == 0x7f);
+	CHK(diginet_counter_text("12345678.", seg, &dots) == DIGINET_E_RANGE);  /* rightmost dot */
 	CHK(diginet_counter_text("123456789", seg, &dots) == DIGINET_E_RANGE);
 	CHK(diginet_counter_text("12M", seg, &dots) == DIGINET_E_RANGE);
 	CHK(diginet_counter_text("", seg, &dots) == 0 && seg[0] == 0 && seg[7] == 0);
 
+	/* "12.5" is the golden counter_write frame: the bytes C24-Engine-Renewed's calculator
+	 * sends for the same text, dot byte 0x40 and 5, 2, 1 first. */
+	CHK(diginet_counter_text("12.5", seg, &dots) == 0 && dots == 0x40);
+	CHK(diginet_counter_encode(C24, seg, dots, &c) == 0 &&
+	    bytes_are(&c, "f0 13 01 30 19 40 5b 6d 30 00 00 00 00 00 f7"));
+	{
+		struct diginet_frame f;
+		const struct golden *g = golden("counter_write");
+		CHK(diginet_frame_parse(g->bytes, g->len, &f) == 0 && f.body_len == c.len &&
+		    !memcmp(f.body, c.bytes, c.len));
+	}
+
 	/* The ProControl: device 00, address 09. */
 	CHK(diginet_counter_text("-", seg, &dots) == 0);
 	CHK(diginet_counter_encode(PRO, seg, dots, &c) == 0 &&
-	    bytes_are(&c, "f0 13 00 30 09 00 40 00 00 00 00 00 00 00 f7"));
+	    bytes_are(&c, "f0 13 00 30 09 00 01 00 00 00 00 00 00 00 f7"));
 
 	/* A dot byte of 0x80 cannot ride a data byte. */
 	CHK(diginet_counter_encode(C24, seg, 0x80, &c) == DIGINET_E_RANGE);
