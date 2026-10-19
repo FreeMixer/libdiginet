@@ -67,7 +67,7 @@ static const struct expect expects[] = {
 	  { { 0xf0, 0, 0, 0, "130110" "00077f" } }, 1 },
 	{ "clock_init", DESK, HOST, 30, 0x0244, 1, 0, 0, 0x00, 1, "f0130130190000000000000000f7", 1,
 	  { { 0xf0, 0, 0, 0, "1301301900000000000000" "00" } }, 1 },
-	{ "running_status", HOST, DESK, 30, 0x03fd, 0x107, 0, 0, 0x00, 4,
+	{ "running_status", HOST, DESK, 30, 0x03fd, 0x107, 0, 0, 0x00, 5,
 	  "9008400741b0017f217040415c3f", 1,
 	  { { 0x90, 0, 0x08, 0x40, NULL }, { 0x90, 1, 0x07, 0x41, NULL },
 	    { 0xb0, 0, 0x01, 0x7f, NULL }, { 0xb0, 1, 0x21, 0x70, NULL },

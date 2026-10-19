@@ -33,7 +33,7 @@ EXPECT = {
     "meter": (24, 0x0291, 0x2C, 0, 0, C.data, 1, [(0xF0, 0x01, F.meter, "00077f")]),
     "clock_init": (30, 0x0244, 1, 0, 0, C.data, 1,
                    [(0xF0, 0x01, F.counter, "19" + "00" * 8)]),
-    "running_status": (30, 0x03FD, 0x107, 0, 0, C.data, 4,
+    "running_status": (30, 0x03FD, 0x107, 0, 0, C.data, 5,
                        [(0x90, False, 0x08, 0x40), (0x90, True, 0x07, 0x41),
                         (0xB0, False, 0x01, 0x7F), (0xB0, True, 0x21, 0x70),
                         (0xB0, True, 0x40, 0x41), (0xB0, True, 0x5C, 0x3F)]),
