@@ -38,6 +38,8 @@ EXPECT = {
                         (0xB0, False, 0x01, 0x7F), (0xB0, True, 0x21, 0x70),
                         (0xB0, True, 0x40, 0x41), (0xB0, True, 0x5C, 0x3F)]),
     "desk_retry": (19, 0x0098, 0x108, 0, 1, C.data, 1, [(0x90, False, 0x08, 0x00)]),
+    "counter_write": (31, 0x037C, 0x2D, 0, 0, C.data, 1,
+                      [(0xF0, 0x01, F.counter, "1940" "5b6d300000000000")]),
 }
 
 ANNOUNCE = {

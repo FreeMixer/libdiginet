@@ -74,6 +74,8 @@ static const struct expect expects[] = {
 	    { 0xb0, 1, 0x40, 0x41, NULL }, { 0xb0, 1, 0x5c, 0x3f, NULL } }, 6 },
 	{ "desk_retry", HOST, DESK, 19, 0x0098, 0x108, 0, 1, 0x00, 1, "900800", 1,
 	  { { 0x90, 0, 0x08, 0x00, NULL } }, 1 },
+	{ "counter_write", DESK, HOST, 31, 0x037c, 0x2d, 0, 0, 0x00, 1, "f013013019405b6d300000000000f7", 1,
+	  { { 0xf0, 0, 0, 0, "1301301940" "5b6d300000000000" } }, 1 },
 };
 #define NEXPECTS (sizeof expects / sizeof expects[0])
 

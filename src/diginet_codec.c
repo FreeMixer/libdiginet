@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 
 /* Encoders for every control, and the 0x70 refusal (docs/protocol.md, "The command set";
- * the assumptions A1-A7 are the section "Where the sources are silent"). */
+ * the assumptions A1-A8 are the section "Assumptions"). */
 #include <string.h>
 
 #include <diginet/diginet_codec.h>
@@ -304,31 +304,31 @@ int diginet_scribble_encode(const struct diginet_personality *p, unsigned addr,
 
 /* ---- the counter ---------------------------------------------------------------------- */
 
-/* Bit 0 = a ... bit 6 = g (docs/protocol.md, A3). */
+/* Bit 6 = a, 5 = b, 4 = c, 3 = d, 2 = e, 1 = f, 0 = g (docs/protocol.md, A3). */
 int diginet_seg7(char c)
 {
 	switch (c) {
-	case '0': return 0x3f; case '1': return 0x06; case '2': return 0x5b; case '3': return 0x4f;
-	case '4': return 0x66; case '5': return 0x6d; case '6': return 0x7d; case '7': return 0x07;
-	case '8': return 0x7f; case '9': return 0x6f;
+	case '0': return 0x7e; case '1': return 0x30; case '2': return 0x6d; case '3': return 0x79;
+	case '4': return 0x33; case '5': return 0x5b; case '6': return 0x5f; case '7': return 0x70;
+	case '8': return 0x7f; case '9': return 0x7b;
 	case 'A': case 'a': return 0x77;
-	case 'b': case 'B': return 0x7c;
-	case 'C': case 'c': return 0x39;
-	case 'd': case 'D': return 0x5e;
-	case 'E': case 'e': return 0x79;
-	case 'F': case 'f': return 0x71;
-	case 'H': return 0x76;
-	case 'h': return 0x74;
-	case 'J': case 'j': return 0x1e;
-	case 'L': case 'l': return 0x38;
-	case 'o': case 'O': return 0x5c;
-	case 'P': case 'p': return 0x73;
-	case 'r': case 'R': return 0x50;
-	case 'S': case 's': return 0x6d;
+	case 'b': case 'B': return 0x1f;
+	case 'C': case 'c': return 0x4e;
+	case 'd': case 'D': return 0x3d;
+	case 'E': case 'e': return 0x4f;
+	case 'F': case 'f': return 0x47;
+	case 'H': return 0x37;
+	case 'h': return 0x17;
+	case 'J': case 'j': return 0x3c;
+	case 'L': case 'l': return 0x0e;
+	case 'o': case 'O': return 0x1d;
+	case 'P': case 'p': return 0x67;
+	case 'r': case 'R': return 0x05;
+	case 'S': case 's': return 0x5b;
 	case 'U': case 'u': return 0x3e;
-	case 'Y': case 'y': return 0x6e;
-	case 'Z': case 'z': return 0x5b;
-	case '-': return 0x40;
+	case 'Y': case 'y': return 0x3b;
+	case 'Z': case 'z': return 0x6d;
+	case '-': return 0x01;
 	case ' ': return 0x00;
 	default:  return -1;
 	}
@@ -359,8 +359,8 @@ int diginet_counter_text(const char *text, uint8_t seg[DIGINET_COUNTER_DIGITS], 
 		int from = i - lead;
 		seg[i] = from >= 0 ? s[from] : 0;
 		if (from >= 0 && dot[from]) {
-			if (i == 0)
-				return DIGINET_E_RANGE;  /* the leftmost dot has no bit (A5) */
+			if (i == DIGINET_COUNTER_DIGITS - 1)
+				return DIGINET_E_RANGE;  /* the rightmost dot has no bit (A5) */
 			d |= DIGINET_COUNTER_DOT(i);
 		}
 	}

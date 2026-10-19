@@ -145,15 +145,17 @@ size_t diginet_scribble_text(const char *text, uint8_t *out, size_t n);
 int diginet_counter_encode(const struct diginet_personality *p,
 			   const uint8_t seg[DIGINET_COUNTER_DIGITS], uint8_t dots,
 			   struct diginet_cmd *out);
-/* Seven-segment pattern of a character: 0-9, A b C d E F H h J L o P r S U Y Z -, space.
- * Returns -1 for a character the display cannot show. */
+/* Seven-segment pattern of a character: 0-9, A b C d E F H h J L o P r S U Y Z -, space;
+ * bit 6 = segment a ... bit 0 = segment g. Returns -1 for a character the display cannot
+ * show. */
 int diginet_seg7(char c);
 /* Text to digits and dots: a '.' after a character lights that digit's dot. Returns
  * DIGINET_OK, DIGINET_E_RANGE for a character without a pattern, more than 8 digits, or a
- * dot on the leftmost digit. Shorter text is right-aligned. */
+ * dot on the rightmost digit. Shorter text is right-aligned. */
 int diginet_counter_text(const char *text, uint8_t seg[DIGINET_COUNTER_DIGITS], uint8_t *dots);
-/* dots bit k (wire order) <-> display digit 7 - k. */
-#define DIGINET_COUNTER_DOT(display_digit) ((uint8_t)(1u << (7 - (display_digit))))
+/* dots bit k is the dot of display digit k, counted from the left (0 = leftmost); the
+ * rightmost digit, 7, has no bit. */
+#define DIGINET_COUNTER_DOT(display_digit) ((uint8_t)(1u << (display_digit)))
 
 /* A system-exclusive command F0 13 dd fn payload F7. Refuses fn 0x70 (DIGINET_E_REFUSED)
  * and payload bytes with bit 7 set. Every sysex encoder above goes through it. */
