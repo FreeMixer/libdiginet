@@ -1,0 +1,9 @@
+*.o
+*.d
+*.a
+/libdiginet.pc
+/build/
+/tests/test_*
+!/tests/test_*.c
+!/tests/test_*.sh
+__pycache__/

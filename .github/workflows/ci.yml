@@ -1,0 +1,58 @@
+name: ci
+# A push runs on main only; a pull request already runs its branch.
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  test:
+    name: build + test (${{ matrix.image }})
+    runs-on: ubuntu-latest
+    # A backstop only: every test carries its own timeout (tests/run-test.sh).
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ['fedora:44', 'debian:bookworm', 'debian:trixie']
+    container: ${{ matrix.image }}
+    steps:
+      - name: Toolchain
+        run: |
+          if command -v dnf >/dev/null; then
+            dnf -y install gcc make git pkgconf-pkg-config diffutils
+          else
+            apt-get update && apt-get -y install --no-install-recommends gcc libc6-dev make git pkg-config ca-certificates
+          fi
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # the public-sources gate reads every commit message
+      - name: Trust the checkout
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Build
+        run: make
+      - name: Unit tests
+        run: make test
+      - name: Install, and build a consumer against the installed tree
+        run: |
+          make install PREFIX=/usr DESTDIR="$PWD/stage"
+          printf '#include <diginet/diginet.h>\nint main(void){return diginet_sum16((const unsigned char*)"\\x01\\x02",2)==3?0:1;}\n' > consumer.c
+          PKG_CONFIG_SYSROOT_DIR="$PWD/stage" PKG_CONFIG_LIBDIR="$PWD/stage/usr/lib/pkgconfig" \
+            sh -c 'cc consumer.c $(pkg-config --cflags --libs libdiginet) -o consumer'
+          ./consumer
+
+  ksy:
+    name: diginet.ksy compiles and reads the golden frames
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    container: debian:trixie
+    steps:
+      - name: Kaitai Struct compiler 0.11 and its Python runtime
+        run: |
+          apt-get update
+          apt-get -y install --no-install-recommends default-jre-headless python3 python3-pip make curl ca-certificates
+          curl -fsSL -o /tmp/ksc.deb https://github.com/kaitai-io/kaitai_struct_compiler/releases/download/0.11/kaitai-struct-compiler_0.11_all.deb
+          apt-get -y install /tmp/ksc.deb
+          pip install --break-system-packages kaitaistruct==0.11
+      - uses: actions/checkout@v4
+      - name: make ksy-check
+        run: make ksy-check

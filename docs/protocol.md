@@ -161,8 +161,8 @@ ReaControl24 and procontrol-linux are GPL-3.0-or-later, like this library. C24-E
 | R8 | ACK window: is one frame in flight required, or does the desk accept a burst? What is the safe frame size? | Load test in the probe: N commands per frame, measure retries and display garbling |
 | R9 | Running status and multi-command frames from the desk | The M1 logs; the parser handles both |
 | R10 | Gaps in the button map, and which keys light | Press every key during M1 (decode log); walk LEDs over zones 0x18–0x1D (Davitekk's LED-finder approach, reimplemented) |
-| R11 | Does Pro Tools do anything we skip (the "cryptography" in Neyrinck's note)? | **Optional:** capture ReaControl24 driving the desk once, on a separate test machine, never the rig. That is the only way to see a known-working host conversation; Pro Tools on any machine would be even better |
+| R11 | Does Pro Tools do anything we skip (the "cryptography" in Neyrinck's note)? | **Optional:** capture ReaControl24 driving the desk once, on a separate test machine, never a production one. That is the only way to see a known-working host conversation; Pro Tools on any machine would be even better |
 | R12 | Analogue section: which buttons reach the preamps, and whether they are safe | A physical check on the unit; never inferred from LEDs |
-| R13 | Two hosts on one desk (a shadow console, or a second daemon) | The claim socket (§9) plus the transport refusing to send `e2` when it sees a foreign `e1` |
-| R14 | The daemon binary loses `cap_net_raw` on reinstall (ops trap 2026-10-08) | `getcap` check in `ExecStartPre`; `%caps` in the RPM |
+| R13 | Two hosts on one desk (a shadow console, or a second daemon) | One daemon owning each desk, plus the transport refusing to send `e2` when it sees a foreign `e1` |
+| R14 | The daemon binary loses `cap_net_raw` on reinstall (`install` does not keep file capabilities) | `getcap` check in `ExecStartPre`; `%caps` in the RPM |
 
