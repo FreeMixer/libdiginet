@@ -1,0 +1,80 @@
+.\" SPDX-License-Identifier: GPL-3.0-or-later
+.\" Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
+.TH DIGINET-PROBE 1 2026-10-19 "libdiginet" "User Commands"
+.SH NAME
+diginet-probe \- first test of a Digidesign Control|24 or ProControl surface
+.SH SYNOPSIS
+.B diginet-probe
+.B \-i
+.I interface
+.RI [ options ]
+.br
+.B diginet-probe
+.B \-\-fd
+.I n
+.B \-\-mac
+.I mac
+.RI [ options ]
+.SH DESCRIPTION
+.B diginet-probe
+wakes the desk cabled to
+.IR interface ,
+moves fader 1 to mid-travel, lights and clears strip 1 MUTE, writes OMX1 to strip 1's
+scribble strip at two addresses and asks what shows, then logs and decodes every command the
+desk sends for 60 seconds. It sends the disconnect frame on exit and ends with one summary
+line per open question of the protocol it can answer.
+.PP
+It opens a raw packet socket and needs the
+.B cap_net_raw
+capability:
+.PP
+.RS
+sudo setcap cap_net_raw=ep /path/to/diginet-probe
+.RE
+.PP
+The packages set it on install.
+.SH OPTIONS
+.TP
+.BI \-i " interface" "\fR, \fP\-\-interface " interface
+The network interface the desk is cabled to.
+.TP
+.BI \-\-fd " n"
+Use the already open descriptor
+.I n
+instead of opening a socket; it must carry whole Ethernet frames.
+.TP
+.BI \-\-mac " mac"
+This host's MAC address, with
+.BR \-\-fd .
+.TP
+.BI \-\-desk " mac"
+Talk to this desk only.
+.TP
+.BR \-\-checksum " " zero | sum
+The header sum of the frames sent: the body sum (default) or zero.
+.TP
+.BI \-\-keepalive " s"
+Keepalive interval in seconds (default 10).
+.TP
+.BI \-\-listen " s"
+How long to log the desk (default 60).
+.TP
+.BI \-\-wait " s"
+How long to wait for the desk's announce (default 30).
+.TP
+.BI \-\-answer " s"
+How long to wait for each answer (default 60).
+.TP
+.B \-\-touch\-test
+Command fader 1 to 25%, send no echo, and report what the fader does while its cap is held
+and after release.
+.TP
+.BR \-h ", " \-\-help
+Print the usage.
+.SH EXIT STATUS
+0 every step was acknowledged; 2 usage error; 3 the desk is in another host's session and
+nothing was sent; 4 no desk answered; 5 the desk did not acknowledge our data.
+.SH SEE ALSO
+.BR setcap (8),
+.BR getcap (8),
+.BR tcpdump (8)

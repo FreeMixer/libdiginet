@@ -1,0 +1,25 @@
+#!/usr/bin/make -f
+
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+include /usr/share/dpkg/buildflags.mk
+
+MULTIARCH = $(shell dpkg-architecture -qDEB_HOST_MULTIARCH)
+
+# The sonames' majors are DIGINET_ABI and DIGINET_TRANSPORT_ABI of include/diginet/diginet.h;
+# the package names libdiginet0 and libdiginet-transport0 carry them, and
+# tests/conformance-packaging.sh holds the two to each other.
+%:
+	dh $@
+
+override_dh_auto_build:
+	$(MAKE) CFLAGS="$(CFLAGS) $(CPPFLAGS)" LDFLAGS="$(LDFLAGS)" shared
+
+override_dh_auto_install:
+	$(MAKE) CFLAGS="$(CFLAGS) $(CPPFLAGS)" LDFLAGS="$(LDFLAGS)" install-shared \
+	  DESTDIR=$(CURDIR)/debian/tmp PREFIX=/usr LIBDIR=/usr/lib/$(MULTIARCH)
+
+override_dh_auto_test:
+	$(MAKE) CFLAGS="$(CFLAGS) $(CPPFLAGS)" test
+
+override_dh_auto_clean:
+	$(MAKE) clean

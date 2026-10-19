@@ -1,0 +1,14 @@
+#!/bin/sh
+# diginet-probe opens a packet socket; give it that one capability, nothing more.
+set -e
+
+if [ "$1" = configure ]; then
+	if command -v setcap >/dev/null 2>&1; then
+		setcap cap_net_raw=ep /usr/bin/diginet-probe ||
+			echo "diginet-tools: could not set cap_net_raw on /usr/bin/diginet-probe; run it as root or set it by hand" >&2
+	fi
+fi
+
+#DEBHELPER#
+
+exit 0
