@@ -6,6 +6,20 @@ The surfaces talk raw Ethernet (EtherType `0x885F`), not MIDI or IP. libdiginet 
 
 What is known about the protocol, and what is still open, is in [docs/protocol.md](docs/protocol.md), every claim cited to its source.
 
+## Network
+
+The desk broadcasts its announce (about every 7 s while idle, measured on a ProControl); after that every frame is unicast between the desk's MAC and the host's MAC. A switch forwards these frames like any other, and machines that speak only IP ignore them, so the desk can share a segment with ordinary IP clients. What the link needs:
+
+- The desk and the host on the same layer-2 segment. There is no IP header, so no router can sit between them.
+- The desk on the untagged (native) VLAN of the host's port: it sends no VLAN tag.
+- A wired path from the desk to the host. Some Wi-Fi bridges drop an EtherType they do not know; IP clients on Wi-Fi are not affected.
+- Not on an interface that carries other real-time traffic, such as a REAC stagebox link.
+- The ProControl's port runs at 10 Mbit/s half duplex. If a modern NIC will not settle on that, put a small unmanaged 10/100 switch between them.
+
+DigiNet has no authentication: the desk takes a session with whichever host answers its announce. On a LAN shared with other people, give the desk and its host a segment of their own.
+
+Nothing here has been tried with a real Control|24 yet; the first run on a desk is tracked in #19.
+
 ## Status
 
 Early, and not yet tried on a desk. In the tree:
