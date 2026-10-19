@@ -18,8 +18,6 @@ The desk broadcasts its announce (about every 7 s while idle, measured on a ProC
 
 DigiNet has no authentication: the desk takes a session with whichever host answers its announce. On a LAN shared with other people, give the desk and its host a segment of their own.
 
-Nothing here has been tried with a real Control|24 yet; the first run on a desk is tracked in #19.
-
 ## Status
 
 Early, and not yet tried on a desk. In the tree:
