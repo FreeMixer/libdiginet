@@ -3,7 +3,7 @@
 # libdiginet-transport, the wire under it, from one source and one version; diginet-tools
 # carries diginet-probe.
 Name:           libdiginet
-Version:        0.1.0
+Version:        0.1.1
 # The sonames' majors. rpm derives this package's provides and every consumer's requires from
 # them. They copy DIGINET_ABI and DIGINET_TRANSPORT_ABI of include/diginet/diginet.h, and
 # tests/conformance-packaging.sh (in make test) refuses a copy that disagrees.
@@ -93,6 +93,16 @@ make CFLAGS="%{optflags}" test
 %{_mandir}/man1/diginet-probe.1*
 
 %changelog
+* Sat Oct 24 2026 Pau Aliagas <linuxnow@gmail.com> - 0.1.1-1
+- A failed send in diginet_session_wake() no longer overwrites the data
+  frame in flight: the wake is built aside and only becomes the in-flight
+  frame once it has gone out, so a retransmit still carries the data (#22).
+- Two coalesced commands can no longer spell the F0 13 xx 70 sequence that
+  made the whole frame undeliverable: the body is checked as each command
+  joins it and a pair that would collide goes out in two frames (#23).
+- Fuzz harnesses for the frame, the command grammar, the codecs and the
+  session, with coverage floors held in CI and a mutant per property; the
+  seeds are generated and the committed corpus is checked against them (#21).
 * Mon Oct 19 2026 Pau Aliagas <linuxnow@gmail.com> - 0.1.0-1
 - First release: a C library for the Ethernet protocol of the Digidesign
   Control|24 and ProControl surfaces. Not yet tried on a desk.

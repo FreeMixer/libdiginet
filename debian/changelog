@@ -1,3 +1,16 @@
+libdiginet (0.1.1) unstable; urgency=medium
+
+  * A failed send in diginet_session_wake() no longer overwrites the data
+    frame in flight: the wake is built aside and only becomes the in-flight
+    frame once it has gone out, so a retransmit still carries the data (#22).
+  * Two coalesced commands can no longer spell the F0 13 xx 70 sequence that
+    made the whole frame undeliverable: the body is checked as each command
+    joins it and a pair that would collide goes out in two frames (#23).
+  * Fuzz harnesses for the frame, the command grammar, the codecs and the
+    session, with coverage floors held in CI and a mutant per property (#21).
+
+ -- Pau Aliagas <linuxnow@gmail.com>  Sun, 25 Oct 2026 01:33:55 +0200
+
 libdiginet (0.1.0) unstable; urgency=medium
 
   * First release: a C library for the Ethernet protocol of the Digidesign
