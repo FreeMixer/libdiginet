@@ -128,6 +128,8 @@ ksy-check:
 #                               fuzz/findings/
 #   make fuzz-sabotage          each mutant of fuzz/mutants/ must make its harness abort on a
 #                               seed, in its own property
+#   make fuzz-cov               line coverage of each reader over its seed corpus, red below
+#                               fuzz/coverage-floor.txt or on a property check no seed reaches
 #   make fuzz-corpus            write fuzz/corpus/ again from the golden frames and the builders
 #   make fuzz-corpus-check      red when fuzz/corpus/ is not what fuzz-corpus writes
 FUZZ_CC        ?= clang
@@ -158,6 +160,35 @@ fuzz-run: fuzz
 
 fuzz-sabotage:
 	FUZZ_BUILD=$(FUZZ_BUILD) MAKE="$(MAKE)" fuzz/sabotage.sh
+
+# The coverage witness: the same harnesses without sanitizers, instrumented for llvm-cov, each
+# run once over its seed corpus (-runs=0 executes the corpus and nothing else); the llvm-cov
+# and llvm-profdata of FUZZ_CC's own LLVM.
+FUZZ_COV_BUILD := $(FUZZ_BUILD)/cov
+FUZZ_COV_FLAGS := -O0 -g -std=c11 -D_DEFAULT_SOURCE -fprofile-instr-generate -fcoverage-mapping
+FUZZ_COV_LIB   := $(FUZZ_COV_BUILD)/libdiginet-cov.a
+LLVM_COV       ?= llvm-cov
+LLVM_PROFDATA  ?= llvm-profdata
+
+$(FUZZ_COV_BUILD)/obj/%.o: %.c
+	@mkdir -p $(dir $@)
+	$(FUZZ_CC) $(FUZZ_COV_FLAGS) -MMD -MP $(INC) -c $< -o $@
+
+$(FUZZ_COV_LIB): $(FUZZ_SRCS:%.c=$(FUZZ_COV_BUILD)/obj/%.o)
+	$(AR) rcs $@ $^
+
+$(FUZZ_COV_BUILD)/fuzz_%: fuzz/fuzz_%.c fuzz/fuzz.h $(FUZZ_COV_LIB)
+	$(FUZZ_CC) $(FUZZ_COV_FLAGS) -fsanitize=fuzzer $(INC) $< $(FUZZ_COV_LIB) -o $@
+
+fuzz-cov: $(FUZZ_HARNESSES:%=$(FUZZ_COV_BUILD)/fuzz_%)
+	@set -e; for h in $(FUZZ_HARNESSES); do \
+	  rm -f $(FUZZ_COV_BUILD)/$$h.profraw; \
+	  LLVM_PROFILE_FILE=$(FUZZ_COV_BUILD)/$$h.profraw $(FUZZ_COV_BUILD)/fuzz_$$h -runs=0 \
+	      fuzz/corpus/$$h/ >$(FUZZ_COV_BUILD)/$$h.log 2>&1 || \
+	    { cat $(FUZZ_COV_BUILD)/$$h.log; echo "fuzz-cov: fuzz_$$h failed on its own corpus"; exit 1; }; \
+	  $(LLVM_PROFDATA) merge -sparse $(FUZZ_COV_BUILD)/$$h.profraw -o $(FUZZ_COV_BUILD)/$$h.profdata; \
+	done
+	@LLVM_COV=$(LLVM_COV) fuzz/coverage.sh $(FUZZ_COV_BUILD) $(FUZZ_HARNESSES)
 
 # The seed corpus is written from tests/golden/frames.txt and the library's own builders, never
 # from a network or a capture, and committed.
@@ -214,4 +245,4 @@ clean:
 	rm -rf build
 
 .PHONY: all test ksy-check shared install install-common install-shared clean \
-	fuzz fuzz-run fuzz-sabotage fuzz-corpus fuzz-corpus-check
+	fuzz fuzz-run fuzz-sabotage fuzz-cov fuzz-corpus fuzz-corpus-check

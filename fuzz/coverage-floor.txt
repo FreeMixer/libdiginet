@@ -1,0 +1,6 @@
+# Covered reader lines each harness's seed corpus reaches (make fuzz-cov, fuzz/coverage.sh).
+# A harness below its floor turns fuzz-cov red. harness covered-lines
+frame 91
+decode 229
+codec 261
+transport 407
