@@ -1,0 +1,11 @@
+--- a/src/diginet_codec.c
++++ b/src/diginet_codec.c
+@@ -56,7 +56,7 @@
+ 			return DIGINET_E_REFUSED;
+ 	}
+ 	/* A cut-short F0 13 xx 70 has no F7 for the cursor to find: look for the prefix too. */
+-	for (size_t i = 0; i + 3 < len; i++)
++	for (size_t i = 0; i + 4 < len; i++)
+ 		if (body[i] == 0xf0 && body[i + 1] == DIGINET_SYSEX_MAKER &&
+ 		    body[i + 3] == DIGINET_FN_SYSTEM)
+ 			return DIGINET_E_REFUSED;
