@@ -587,6 +587,17 @@ static void transport_seeds(void)
 	}
 	emit("transport", "batches");
 
+	/* two commands each whole alone that are F0 13 xx 70 together: the first ends F0 13, and
+	 * the second is serial 112, so its A0 70 follows */
+	config(F_AUTO, 5, 100, 60000, 0, 60000, 3000, 0, 255, DIGINET_MAX_BODY_LEN);
+	for (unsigned i = 0; i < 111; i++)
+		t_tagged(DIGINET_KEY_INPUT, 0, 0, 3, "");
+	t_tagged(DIGINET_KEY_INPUT, 0, 0, 5, "\xf0\x13");
+	t_tagged(DIGINET_KEY_INPUT, 0, 0, 3, "");
+	online();
+	t_time(MSEC, 1);
+	emit("transport", "split-system");
+
 	/* the queue filled while no session lives */
 	config_default(F_AUTO);
 	for (unsigned i = 0; i < DIGINET_QUEUE_MAX + 1; i++)

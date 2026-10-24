@@ -504,6 +504,21 @@ static void test_coalesce(void)
 	CHK(E.log[first + 1].at_us - E.log[first].at_us < 2 * MS);
 	CHK(E.log[first + 2].ncmds == 4 && E.log[first + 2].at_us - E.log[first].at_us >= 2 * MS &&
 	    E.log[first + 2].at_us - E.log[first].at_us <= 2 * MS + 100);
+
+	/* Two commands each acceptable alone that make F0 13 01 70 side by side: both are sent,
+	 * in frames of their own, and no frame holds the system message. */
+	start();
+	go_online();
+	first = E.nlog;
+	struct diginet_cmd a = { .bytes = { 0x90, 0x08, 0x40, 0xf0, 0x13 }, .len = 5,
+				 .key = DIGINET_KEY(DIGINET_KEY_INPUT, 0) };
+	struct diginet_cmd b = { .bytes = { 0x01, 0x70, 0xf7 }, .len = 3, .key = DIGINET_KEY(DIGINET_KEY_INPUT, 0) };
+	CHK(diginet_session_submit(S_, &a) == 0 && diginet_session_submit(S_, &b) == 0);
+	run(5 * MS, 100, NULL);
+	int ka = find_rx(a.bytes, a.len, 0), kb = find_rx(b.bytes, b.len, 0);
+	CHK(ka >= 0 && kb >= 0 && ka != kb && S_->queued == 0);
+	for (unsigned i = first; i < E.nlog; i++)
+		CHK(diginet_body_check(E.log[i].body, E.log[i].body_len) == 0);
 }
 
 /* ---- 6 ------------------------------------------------------------------------------- */

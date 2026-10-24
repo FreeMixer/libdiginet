@@ -360,7 +360,12 @@ static unsigned take(struct diginet_session *s, uint8_t *body, size_t *body_len,
 		int fits = taken < s->cfg.max_cmds && len + c->len <= s->cfg.max_body &&
 			   (allow_display || !c->display);
 		if (fits) {
+			/* Two commands each whole alone can make an F0 13 xx 70 side by side, a body
+			 * the frame builder refuses: such a one waits for a frame of its own. */
 			memcpy(body + len, c->bytes, c->len);
+			fits = diginet_body_check(body, len + c->len) == DIGINET_OK;
+		}
+		if (fits) {
 			len += c->len;
 			taken++;
 			*has_display |= c->display;
