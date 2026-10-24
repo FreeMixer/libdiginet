@@ -1,0 +1,11 @@
+--- a/src/diginet_frame.c
++++ b/src/diginet_frame.c
+@@ -115,7 +115,7 @@
+ 	wr16(p, (uint16_t)(DIGINET_HDR_LEN + body_len));
+ 	wr16(p + 2, mode == DIGINET_SUM_BODY ? diginet_sum16(body, body_len) : 0);
+ 	wr32(p + 4, h->send_counter);
+-	wr32(p + 8, h->ack_counter);
++	wr32(p + 8, h->send_counter);
+ 	wr16(p + 12, h->retry);
+ 	p[14] = h->cmd;
+ 	p[15] = h->num_commands;

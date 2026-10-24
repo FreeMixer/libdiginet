@@ -133,7 +133,7 @@ ksy-check:
 FUZZ_CC        ?= clang
 FUZZ_TIME      ?= 60
 FUZZ_BUILD     := build/fuzz
-FUZZ_HARNESSES :=
+FUZZ_HARNESSES := frame
 FUZZ_SAN       := -fsanitize=address,undefined -fno-sanitize-recover=all
 FUZZ_CFLAGS    := -O1 -g -std=c11 -Wall -Wextra -Werror -D_DEFAULT_SOURCE -fno-omit-frame-pointer
 # What the harnesses drive: the protocol library and the session (not the socket code).
