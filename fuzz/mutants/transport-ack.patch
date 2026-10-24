@@ -1,0 +1,11 @@
+--- a/transport/src/diginet_session.c
++++ b/transport/src/diginet_session.c
+@@ -239,7 +239,7 @@
+ static void on_data(struct diginet_session *s, const struct diginet_frame *f, uint64_t now)
+ {
+ 	/* Every desk data frame is acknowledged, a retransmitted one again. */
+-	if (send_control(s, DIGINET_CMD_ACK, f->h.send_counter, NULL, NULL) == 0)
++	if (send_control(s, DIGINET_CMD_ACK, f->h.ack_counter, NULL, NULL) == 0)
+ 		s->stats.tx_acks++;
+ 	s->stats.rx_data++;
+ 	if (f->h.retry) {

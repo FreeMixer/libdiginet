@@ -1,0 +1,10 @@
+--- a/src/diginet_frame.c
++++ b/src/diginet_frame.c
+@@ -146,6 +146,6 @@
+ 	a->unknown = f->body;
+ 	a->unknown_len = 15;
+ 	copy_strz(a->version, sizeof a->version, f->body + 15, 9);
+-	copy_strz(a->name, sizeof a->name, f->body + 24, 9);
++	copy_strz(a->name, sizeof a->name, f->body + 23, 9);
+ 	return DIGINET_OK;
+ }

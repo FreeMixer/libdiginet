@@ -1,0 +1,11 @@
+--- a/transport/src/diginet_session.c
++++ b/transport/src/diginet_session.c
+@@ -122,7 +122,7 @@
+ 		return DIGINET_E_ARG;
+ 	if (!s->desk_known)
+ 		return DIGINET_E_ARG;
+-	if (s->foreign) {
++	if (s->foreign && s->state == DIGINET_S_ONLINE) {
+ 		s->stats.refused++;
+ 		return DIGINET_E_REFUSED;   /* never steal another host's session */
+ 	}

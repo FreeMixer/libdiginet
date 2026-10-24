@@ -1,0 +1,11 @@
+--- a/src/diginet_decode.c
++++ b/src/diginet_decode.c
+@@ -137,7 +137,7 @@
+ 		if (diginet_msg_next(&peek, &lsb) == 1 && (lsb.status & 0xf0) == 0xb0 &&
+ 		    lsb.d1 == 0x20 + m.d1) {
+ 			ev->value |= (uint16_t)((lsb.d2 >> 4) & 7);
+-			d->c = peek;
++			(void)peek;
+ 		} else {
+ 			ev->lsb_missing = 1;
+ 		}

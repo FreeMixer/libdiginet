@@ -1,0 +1,11 @@
+--- a/src/diginet_codec.c
++++ b/src/diginet_codec.c
+@@ -97,7 +97,7 @@
+ {
+ 	if (!p || !out)
+ 		return DIGINET_E_ARG;
+-	if (strip >= p->strips || value > DIGINET_FADER_MAX)
++	if (strip > p->strips || value > DIGINET_FADER_MAX)
+ 		return DIGINET_E_RANGE;
+ 	out->bytes[0] = 0xb0;
+ 	out->bytes[1] = (uint8_t)strip;

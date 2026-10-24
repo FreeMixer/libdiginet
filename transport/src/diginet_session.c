@@ -129,9 +129,15 @@ int diginet_session_wake(struct diginet_session *s, uint64_t now_us)
 	s->e1_named_us = 0;
 	s->wake_acked = 0;
 	s->wake_sent_us = now_us;
-	int r = send_control(s, DIGINET_CMD_WAKE, 0, s->inflight_frame, &s->inflight_len);
+	/* The e2 becomes the frame in flight only once it is sent: a failed send leaves the
+	 * frame in flight, which the next retransmission sends again, as it was. */
+	uint8_t e2[DIGINET_MIN_FRAME_LEN];
+	size_t e2_len;
+	int r = send_control(s, DIGINET_CMD_WAKE, 0, e2, &e2_len);
 	if (r < 0)
 		return r;
+	memcpy(s->inflight_frame, e2, e2_len);
+	s->inflight_len = e2_len;
 	s->stats.tx_wakes++;
 	inflight_start(s, s->host_counter, now_us);
 	set_state(s, DIGINET_S_WAKING, DIGINET_R_WAKE);
@@ -354,7 +360,12 @@ static unsigned take(struct diginet_session *s, uint8_t *body, size_t *body_len,
 		int fits = taken < s->cfg.max_cmds && len + c->len <= s->cfg.max_body &&
 			   (allow_display || !c->display);
 		if (fits) {
+			/* Two commands each whole alone can make an F0 13 xx 70 side by side, a body
+			 * the frame builder refuses: such a one waits for a frame of its own. */
 			memcpy(body + len, c->bytes, c->len);
+			fits = diginet_body_check(body, len + c->len) == DIGINET_OK;
+		}
+		if (fits) {
 			len += c->len;
 			taken++;
 			*has_display |= c->display;

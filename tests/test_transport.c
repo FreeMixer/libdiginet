@@ -19,6 +19,8 @@
  *  8. SUM        the header sum per the switch, checked by a desk that insists on it.
  *  9. CLOSE      e3 on close.
  */
+#include <errno.h>
+
 #include "golden.h"
 #include "desk_emu.h"
 
@@ -68,9 +70,15 @@ static void on_notice(void *ctx, const struct diginet_notice *n)
 	}
 }
 
+static int send_fails;   /* the next sends that fail, as a full socket buffer fails them */
+
 static int io_send(void *ctx, const uint8_t *f, size_t len)
 {
 	(void)ctx;
+	if (send_fails > 0) {
+		send_fails--;
+		return -EIO;
+	}
 	emu_from_host(&E, f, len, now);
 	return 0;
 }
@@ -322,6 +330,20 @@ static void test_retransmit(void)
 	run(10 * MS, 1 * MS, NULL);
 	int k = find_rx(next.bytes, next.len, 0);
 	CHK(k >= 0 && E.log[k].acked);
+
+	/* A wake whose send fails changes nothing: the frame in flight is still the one
+	 * retransmitted, and no e2 reaches the desk. */
+	E.drop_acks = 1;
+	struct diginet_cmd held = fader(3, 300);
+	CHK(diginet_session_submit(S_, &held) == 0);
+	run(1 * MS, 1 * MS, NULL);
+	CHK(S_->inflight && find_rx(held.bytes, held.len, 0) >= 0);
+	unsigned wakes = E.wakes;
+	send_fails = 1;
+	CHK(diginet_session_wake(S_, now) == -EIO);
+	run(150 * MS, 1 * MS, NULL);
+	int h = find_rx(held.bytes, held.len, 1);
+	CHK(h >= 0 && E.log[h].retry == 1 && E.log[h].acked && E.wakes == wakes);
 }
 
 /* ---- 4 ------------------------------------------------------------------------------- */
@@ -482,6 +504,21 @@ static void test_coalesce(void)
 	CHK(E.log[first + 1].at_us - E.log[first].at_us < 2 * MS);
 	CHK(E.log[first + 2].ncmds == 4 && E.log[first + 2].at_us - E.log[first].at_us >= 2 * MS &&
 	    E.log[first + 2].at_us - E.log[first].at_us <= 2 * MS + 100);
+
+	/* Two commands each acceptable alone that make F0 13 01 70 side by side: both are sent,
+	 * in frames of their own, and no frame holds the system message. */
+	start();
+	go_online();
+	first = E.nlog;
+	struct diginet_cmd a = { .bytes = { 0x90, 0x08, 0x40, 0xf0, 0x13 }, .len = 5,
+				 .key = DIGINET_KEY(DIGINET_KEY_INPUT, 0) };
+	struct diginet_cmd b = { .bytes = { 0x01, 0x70, 0xf7 }, .len = 3, .key = DIGINET_KEY(DIGINET_KEY_INPUT, 0) };
+	CHK(diginet_session_submit(S_, &a) == 0 && diginet_session_submit(S_, &b) == 0);
+	run(5 * MS, 100, NULL);
+	int ka = find_rx(a.bytes, a.len, 0), kb = find_rx(b.bytes, b.len, 0);
+	CHK(ka >= 0 && kb >= 0 && ka != kb && S_->queued == 0);
+	for (unsigned i = first; i < E.nlog; i++)
+		CHK(diginet_body_check(E.log[i].body, E.log[i].body_len) == 0);
 }
 
 /* ---- 6 ------------------------------------------------------------------------------- */

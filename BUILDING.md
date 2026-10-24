@@ -72,12 +72,23 @@ make ksy-check
 This needs `kaitai-struct-compiler` (0.11, from https://github.com/kaitai-io/kaitai_struct_compiler/releases)
 and the Python runtime (`pip install kaitaistruct==0.11`). CI runs it in a Debian container.
 
+## Fuzzing
+
+Every reader of desk bytes has a libFuzzer harness in `fuzz/`, with a seed corpus, a coverage
+floor and one mutant per property; [fuzz/README.md](fuzz/README.md) says what each checks.
+They need clang with libFuzzer, and `llvm-cov` for the coverage witness:
+
+```
+make fuzz fuzz-run FUZZ_TIME=60 fuzz-sabotage fuzz-cov
+```
+
 ## CI
 
 `.github/workflows/ci.yml` runs `make`, `make test` and `make install` in fedora:44,
 debian:bookworm and debian:trixie containers, `make test` once more on the bare runner (where
 the namespace test can run), and `make ksy-check` in a Debian container with the compiler
-installed.
+installed. `.github/workflows/fuzz.yml` builds the harnesses in fedora:44, fuzzes each for 60 s
+and runs `make fuzz-corpus-check`, `make fuzz-sabotage` and `make fuzz-cov`.
 
 ## Packages
 

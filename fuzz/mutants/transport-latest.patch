@@ -1,0 +1,11 @@
+--- a/transport/src/diginet_session.c
++++ b/transport/src/diginet_session.c
+@@ -336,7 +336,7 @@
+ 	if (coalescable(c->key)) {
+ 		for (unsigned i = 0; i < s->queued; i++) {
+ 			if (s->queue[i].key == c->key) {
+-				s->queue[i] = *c;   /* latest wins, in place */
++				s->queue[i].key = c->key;   /* latest wins, in place */
+ 				s->stats.coalesced++;
+ 				return DIGINET_OK;
+ 			}

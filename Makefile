@@ -118,6 +118,96 @@ ksy-check:
 	kaitai-struct-compiler -t python --outdir $(KSY_OUT) protocol/diginet.ksy
 	python3 tests/ksy/check_golden.py $(KSY_OUT) $(GOLDEN)
 
+# ---- fuzzing (fuzz/README.md) ----------------------------------------------------------------
+# One libFuzzer harness per reader of desk bytes in fuzz/, each linked against a library of its
+# own: the same sources compiled with clang, AddressSanitizer, UndefinedBehaviorSanitizer and
+# libFuzzer's coverage hooks into build/fuzz/obj, so the ordinary build above is never touched.
+# None of these targets is part of `make test`.
+#   make fuzz                   build every harness
+#   make fuzz-run FUZZ_TIME=60  fuzz each for the budget; red on any crash, the input left in
+#                               fuzz/findings/
+#   make fuzz-sabotage          each mutant of fuzz/mutants/ must make its harness abort on a
+#                               seed, in its own property
+#   make fuzz-cov               line coverage of each reader over its seed corpus, red below
+#                               fuzz/coverage-floor.txt or on a property check no seed reaches
+#   make fuzz-corpus            write fuzz/corpus/ again from the golden frames and the builders
+#   make fuzz-corpus-check      red when fuzz/corpus/ is not what fuzz-corpus writes
+FUZZ_CC        ?= clang
+FUZZ_TIME      ?= 60
+FUZZ_BUILD     := build/fuzz
+FUZZ_HARNESSES := frame decode codec transport
+FUZZ_SAN       := -fsanitize=address,undefined -fno-sanitize-recover=all
+FUZZ_CFLAGS    := -O1 -g -std=c11 -Wall -Wextra -Werror -D_DEFAULT_SOURCE -fno-omit-frame-pointer
+# What the harnesses drive: the protocol library and the session (not the socket code).
+FUZZ_SRCS      := $(OBJS:.o=.c) transport/src/diginet_session.c
+FUZZ_LIB       := $(FUZZ_BUILD)/libdiginet-fuzz.a
+FUZZ_BINS      := $(FUZZ_HARNESSES:%=$(FUZZ_BUILD)/fuzz_%)
+
+$(FUZZ_BUILD)/obj/%.o: %.c
+	@mkdir -p $(dir $@)
+	$(FUZZ_CC) $(FUZZ_CFLAGS) $(FUZZ_SAN) -fsanitize=fuzzer-no-link -MMD -MP $(INC) -c $< -o $@
+
+$(FUZZ_LIB): $(FUZZ_SRCS:%.c=$(FUZZ_BUILD)/obj/%.o)
+	$(AR) rcs $@ $^
+
+$(FUZZ_BUILD)/fuzz_%: fuzz/fuzz_%.c fuzz/fuzz.h $(FUZZ_LIB)
+	$(FUZZ_CC) $(FUZZ_CFLAGS) $(FUZZ_SAN) -fsanitize=fuzzer -MMD -MP -MF $@.d $(INC) $< $(FUZZ_LIB) -o $@
+
+fuzz: $(FUZZ_BINS)
+
+fuzz-run: fuzz
+	FUZZ_BUILD=$(FUZZ_BUILD) FUZZ_TIME=$(FUZZ_TIME) fuzz/run.sh $(FUZZ_HARNESSES)
+
+fuzz-sabotage:
+	FUZZ_BUILD=$(FUZZ_BUILD) MAKE="$(MAKE)" fuzz/sabotage.sh
+
+# The coverage witness: the same harnesses without sanitizers, instrumented for llvm-cov, each
+# run once over its seed corpus (-runs=0 executes the corpus and nothing else); the llvm-cov
+# and llvm-profdata of FUZZ_CC's own LLVM.
+FUZZ_COV_BUILD := $(FUZZ_BUILD)/cov
+FUZZ_COV_FLAGS := -O0 -g -std=c11 -D_DEFAULT_SOURCE -fprofile-instr-generate -fcoverage-mapping
+FUZZ_COV_LIB   := $(FUZZ_COV_BUILD)/libdiginet-cov.a
+LLVM_COV       ?= llvm-cov
+LLVM_PROFDATA  ?= llvm-profdata
+
+$(FUZZ_COV_BUILD)/obj/%.o: %.c
+	@mkdir -p $(dir $@)
+	$(FUZZ_CC) $(FUZZ_COV_FLAGS) -MMD -MP $(INC) -c $< -o $@
+
+$(FUZZ_COV_LIB): $(FUZZ_SRCS:%.c=$(FUZZ_COV_BUILD)/obj/%.o)
+	$(AR) rcs $@ $^
+
+$(FUZZ_COV_BUILD)/fuzz_%: fuzz/fuzz_%.c fuzz/fuzz.h $(FUZZ_COV_LIB)
+	$(FUZZ_CC) $(FUZZ_COV_FLAGS) -fsanitize=fuzzer $(INC) $< $(FUZZ_COV_LIB) -o $@
+
+fuzz-cov: $(FUZZ_HARNESSES:%=$(FUZZ_COV_BUILD)/fuzz_%)
+	@set -e; for h in $(FUZZ_HARNESSES); do \
+	  rm -f $(FUZZ_COV_BUILD)/$$h.profraw; \
+	  LLVM_PROFILE_FILE=$(FUZZ_COV_BUILD)/$$h.profraw $(FUZZ_COV_BUILD)/fuzz_$$h -runs=0 \
+	      fuzz/corpus/$$h/ >$(FUZZ_COV_BUILD)/$$h.log 2>&1 || \
+	    { cat $(FUZZ_COV_BUILD)/$$h.log; echo "fuzz-cov: fuzz_$$h failed on its own corpus"; exit 1; }; \
+	  $(LLVM_PROFDATA) merge -sparse $(FUZZ_COV_BUILD)/$$h.profraw -o $(FUZZ_COV_BUILD)/$$h.profdata; \
+	done
+	@LLVM_COV=$(LLVM_COV) fuzz/coverage.sh $(FUZZ_COV_BUILD) $(FUZZ_HARNESSES)
+
+# The seed corpus is written from tests/golden/frames.txt and the library's own builders, never
+# from a network or a capture, and committed.
+FUZZ_GEN := build/fuzz-gen-corpus
+$(FUZZ_GEN): fuzz/gen-corpus.c tests/golden.h libdiginet.a
+	@mkdir -p build
+	$(CC) $(CFLAGS) $(WARN) $(INC) -Itests $< libdiginet.a -o $@
+
+fuzz-corpus: $(FUZZ_GEN)
+	rm -rf fuzz/corpus
+	$(FUZZ_GEN) $(GOLDEN) fuzz/corpus
+
+fuzz-corpus-check: $(FUZZ_GEN)
+	@rm -rf build/fuzz-corpus-check
+	@$(FUZZ_GEN) $(GOLDEN) build/fuzz-corpus-check
+	@diff -r build/fuzz-corpus-check fuzz/corpus && echo "fuzz/corpus is what fuzz-corpus writes"
+
+-include $(FUZZ_SRCS:%.c=$(FUZZ_BUILD)/obj/%.d) $(FUZZ_BINS:=.d)
+
 # The pkg-config files are written at install time, from the install's own PREFIX and LIBDIR:
 # a file kept from an earlier build would name that build's directories.
 PCSED = sed -e 's|@PREFIX@|$(PREFIX)|' -e 's|@LIBDIR@|$(LIBDIR)|' -e 's|@INCDIR@|$(INCDIR)|' \
@@ -154,4 +244,5 @@ clean:
 	rm -f libdiginet.so* libdiginet-transport.so*
 	rm -rf build
 
-.PHONY: all test ksy-check shared install install-common install-shared clean
+.PHONY: all test ksy-check shared install install-common install-shared clean \
+	fuzz fuzz-run fuzz-sabotage fuzz-cov fuzz-corpus fuzz-corpus-check
