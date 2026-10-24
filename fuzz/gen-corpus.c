@@ -499,6 +499,15 @@ static void transport_seeds(void)
 		t_time(MSEC, 1);
 	emit("transport", "retransmit-fails");
 
+	/* a frame in flight, a wake whose send fails, then the retransmission of that frame */
+	config(F_AUTO, 3, 1, 1, 0, 60000, 3000, 0, 48, 314);
+	online();
+	t_time(MSEC, 2);
+	put8(T_FAIL);
+	put8(T_WAKE);
+	t_time(DECI, 5);
+	emit("transport", "wake-fails-in-flight");
+
 	/* keepalives on their own clock, a desk retry holding them back, then silence */
 	config(F_AUTO, 1, 1, 10, 30, 1000, 3000, 0, 48, 314);
 	online();

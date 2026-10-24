@@ -19,6 +19,8 @@
  *  8. SUM        the header sum per the switch, checked by a desk that insists on it.
  *  9. CLOSE      e3 on close.
  */
+#include <errno.h>
+
 #include "golden.h"
 #include "desk_emu.h"
 
@@ -68,9 +70,15 @@ static void on_notice(void *ctx, const struct diginet_notice *n)
 	}
 }
 
+static int send_fails;   /* the next sends that fail, as a full socket buffer fails them */
+
 static int io_send(void *ctx, const uint8_t *f, size_t len)
 {
 	(void)ctx;
+	if (send_fails > 0) {
+		send_fails--;
+		return -EIO;
+	}
 	emu_from_host(&E, f, len, now);
 	return 0;
 }
@@ -322,6 +330,20 @@ static void test_retransmit(void)
 	run(10 * MS, 1 * MS, NULL);
 	int k = find_rx(next.bytes, next.len, 0);
 	CHK(k >= 0 && E.log[k].acked);
+
+	/* A wake whose send fails changes nothing: the frame in flight is still the one
+	 * retransmitted, and no e2 reaches the desk. */
+	E.drop_acks = 1;
+	struct diginet_cmd held = fader(3, 300);
+	CHK(diginet_session_submit(S_, &held) == 0);
+	run(1 * MS, 1 * MS, NULL);
+	CHK(S_->inflight && find_rx(held.bytes, held.len, 0) >= 0);
+	unsigned wakes = E.wakes;
+	send_fails = 1;
+	CHK(diginet_session_wake(S_, now) == -EIO);
+	run(150 * MS, 1 * MS, NULL);
+	int h = find_rx(held.bytes, held.len, 1);
+	CHK(h >= 0 && E.log[h].retry == 1 && E.log[h].acked && E.wakes == wakes);
 }
 
 /* ---- 4 ------------------------------------------------------------------------------- */

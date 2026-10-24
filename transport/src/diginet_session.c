@@ -129,9 +129,15 @@ int diginet_session_wake(struct diginet_session *s, uint64_t now_us)
 	s->e1_named_us = 0;
 	s->wake_acked = 0;
 	s->wake_sent_us = now_us;
-	int r = send_control(s, DIGINET_CMD_WAKE, 0, s->inflight_frame, &s->inflight_len);
+	/* The e2 becomes the frame in flight only once it is sent: a failed send leaves the
+	 * frame in flight, which the next retransmission sends again, as it was. */
+	uint8_t e2[DIGINET_MIN_FRAME_LEN];
+	size_t e2_len;
+	int r = send_control(s, DIGINET_CMD_WAKE, 0, e2, &e2_len);
 	if (r < 0)
 		return r;
+	memcpy(s->inflight_frame, e2, e2_len);
+	s->inflight_len = e2_len;
 	s->stats.tx_wakes++;
 	inflight_start(s, s->host_counter, now_us);
 	set_state(s, DIGINET_S_WAKING, DIGINET_R_WAKE);
