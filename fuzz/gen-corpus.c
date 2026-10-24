@@ -53,6 +53,13 @@ static void put8(unsigned v)
 	put(&b, 1);
 }
 
+/* little-endian, as fuzz_u16() reads it */
+static void put16(unsigned v)
+{
+	put8(v & 0xff);
+	put8(v >> 8 & 0xff);
+}
+
 static const char *g_root;
 
 static void mkdir_p(const char *path)
@@ -234,6 +241,102 @@ static void decode_seeds(void)
 	body_seed(0, golden("running_status")->bytes + DIGINET_BODY_OFFSET, 14, "no-personality");
 }
 
+/* ---- fuzz_codec: operations ---- */
+
+enum { NONE = 0, C24 = 1, PC = 2 };
+static void op(unsigned kind, unsigned desk) { put8(desk * 15 + kind); }
+
+static void codec_seeds(void)
+{
+	static const uint8_t seg[8] = { 0x7e, 0x30, 0x6d, 0x79, 0x33, 0x5b, 0x5f, 0x70 };
+	static const uint8_t pl[3] = { 0x01, 0x02, 0x03 };
+
+	/* every encoder, in range, for both desks */
+	for (unsigned desk = C24; desk <= PC; desk++) {
+		op(0, desk); put8(1); put16(700);
+		op(1, desk); put8(DIGINET_BTN_MUTE); put8(2); put8(1);
+		op(1, desk); put8(DIGINET_BTN_TOUCH); put8(3); put8(0);
+		op(1, desk); put8(0x10); put8(DIGINET_ZONE_FIRST); put8(1);
+		op(2, desk); put8(4); put8(1);
+		op(3, desk); put8(5); put16((uint16_t)-3);
+		op(4, desk); put16(7);
+		op(5, desk); put8(6); put16(0x7fff);
+		op(6, desk); put8(7); put8(1); put8(10);
+		op(6, desk); put8(24); put8(0); put8(0);
+		op(7, desk); put8(1); put8(DIGINET_AUTO_TOUCH);
+		op(8, desk); put8(0x7f);
+		op(9, desk); put8(0x20); put("OMX1Mix8", 8);
+		op(10, desk); put8(0x05); put(seg, 8);
+		op(11, desk); put8(0x01); put8(DIGINET_FN_METER); put8(3); put(pl, 3);
+		emit("codec", desk == C24 ? "encoders-control24" : "encoders-procontrol");
+	}
+
+	/* every encoder out of range, and without a personality */
+	op(0, C24); put8(0); put16(DIGINET_FADER_MAX + 1);
+	op(1, C24); put8(0x80); put8(0); put8(0);
+	op(1, C24); put8(0); put8(0x40); put8(0);
+	op(2, C24); put8(24); put8(1);
+	op(3, C24); put8(0); put16(64);
+	op(3, C24); put8(24); put16(0);
+	op(4, C24); put16((uint16_t)-65);
+	op(5, C24); put8(0); put16(0x8000);
+	op(5, C24); put8(24); put16(1);
+	op(6, C24); put8(0x20); put8(0); put8(1);
+	op(6, C24); put8(0); put8(0); put8(15);
+	op(7, C24); put8(0); put8(0x80);
+	op(7, C24); put8(24); put8(0);
+	op(8, C24); put8(0x80);
+	op(9, C24); put8(0x80); put("abcdefgh", 8);
+	op(9, C24); put8(0x01); put("ab\x80" "defgh", 8);
+	op(10, C24); put8(0x80); put(seg, 8);
+	op(10, C24); put8(0); put8(0x80); put(seg + 1, 7);
+	op(11, C24); put8(0x80); put8(0x10); put8(0);
+	op(11, C24); put8(0x01); put8(0x80); put8(0);
+	op(11, C24); put8(0x01); put8(0x10); put8(20); put("01234567890123456789", 20);
+	op(11, C24); put8(0x01); put8(0x10); put8(1); put8(0x80);
+	for (unsigned k = 0; k <= 10; k++) {
+		op(k, NONE);
+		put("\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a", 10);
+	}
+	emit("codec", "out-of-range");
+
+	/* the mutants' seeds */
+	op(0, C24); put8(24); put16(0);
+	emit("codec", "fader-past-last-strip");
+	op(0, C24); put8(0); put16(DIGINET_FADER_MAX);
+	emit("codec", "fader-full");
+	op(11, C24); put8(0x01); put8(DIGINET_FN_SYSTEM); put8(2); put("\x00\x00", 2);
+	op(11, C24); put8(0x80); put8(DIGINET_FN_SYSTEM); put8(0);
+	emit("codec", "sysex-system");
+	op(13, C24); put16(9); put("12345678.", 9);
+	emit("codec", "counter-text-last-dot");
+
+	/* the text helpers */
+	static const char *const TEXT[] = {
+		"Kick", "Vox.2", "a.1.9", "\xc3\xa9t\xc3\xa9", "", "longer than eight",
+	};
+	for (size_t i = 0; i < sizeof TEXT / sizeof TEXT[0]; i++) {
+		op(12, i & 1 ? PC : C24); put8(0x10 + i); put16(strlen(TEXT[i])); put(TEXT[i], strlen(TEXT[i]));
+	}
+	op(12, NONE); put8(0x01); put16(3); put("abc", 3);
+	emit("codec", "scribble-text");
+	static const char *const COUNTER[] = {
+		"12.5", "1.2.3.4.5.6.7.8", "123456789", "0:00", "-HELLO-", "..", "", "1..2",
+		/* every character the display shows */
+		"01234567", "89AaBbCc", "DdEeFfHh", "JjLlOoPp", "RrSsUuYy", "Zz- ",
+	};
+	for (size_t i = 0; i < sizeof COUNTER / sizeof COUNTER[0]; i++) {
+		op(13, C24); put16(strlen(COUNTER[i])); put(COUNTER[i], strlen(COUNTER[i]));
+	}
+	emit("codec", "counter-text");
+	op(14, NONE); put8(0); put16(0);
+	op(14, NONE); put8(10); put16(0x3ff);
+	op(14, NONE); put8(14); put16(0x3fff);
+	op(14, NONE); put8(15); put16(0x7fff);
+	op(14, NONE); put8(200); put16(0x0005);
+	emit("codec", "masks");
+}
+
 int main(int argc, char **argv)
 {
 	(void)fails;
@@ -246,6 +349,7 @@ int main(int argc, char **argv)
 	mkdir_p(g_root);
 	frame_seeds();
 	decode_seeds();
+	codec_seeds();
 	free(S.p);
 	return 0;
 }
