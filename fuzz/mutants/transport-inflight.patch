@@ -1,0 +1,11 @@
+--- a/transport/src/diginet_session.c
++++ b/transport/src/diginet_session.c
+@@ -428,7 +428,7 @@
+ 	}
+ 
+ 	if (s->inflight && now - s->inflight_sent_us >= ms(s->cfg.ack_timeout_ms)) {
+-		if (s->inflight_retries < s->cfg.max_retries) {
++		if (s->inflight_retries <= s->cfg.max_retries) {
+ 			int r = retransmit(s, now);
+ 			if (r < 0)
+ 				return r;

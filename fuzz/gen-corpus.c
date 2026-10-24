@@ -60,6 +60,13 @@ static void put16(unsigned v)
 	put8(v >> 8 & 0xff);
 }
 
+/* a length-prefixed record, as fuzz_record() reads it */
+static void put_rec(const uint8_t *p, size_t n)
+{
+	put16((unsigned)n);
+	put(p, n);
+}
+
 static const char *g_root;
 
 static void mkdir_p(const char *path)
@@ -83,6 +90,9 @@ static void emit(const char *harness, const char *name)
 	}
 	S.n = 0;
 }
+
+static const uint8_t HOST[DIGINET_MAC_LEN] = { 0x02, 0x00, 0x00, 0x00, 0x00, 0x01 };
+static const uint8_t DESK[DIGINET_MAC_LEN] = { 0x00, 0xa0, 0x7e, 0x24, 0x00, 0x01 };
 
 static void set16(uint8_t *p, unsigned v)
 {
@@ -337,6 +347,259 @@ static void codec_seeds(void)
 	emit("codec", "masks");
 }
 
+/* ---- fuzz_transport: a session ---- */
+
+enum { F_AUTO = 1, F_ZERO = 2, F_DESKSET = 4, F_RAW = 8 };
+
+/* the config, in the harness's units: each argument is the value the session gets */
+static void config(unsigned flags, unsigned retries, unsigned ack_ms, unsigned ka_ms, unsigned backoff_ms,
+		   unsigned offline_ms, unsigned wake_ms, unsigned gap_us, unsigned max_cmds, unsigned max_body)
+{
+	put8(flags);
+	put8(retries);
+	put8(ack_ms - 1);
+	put16(ka_ms - 1);
+	put8(backoff_ms);
+	put16(offline_ms - 1);
+	put16(wake_ms - 1);
+	put16(gap_us);
+	put8(max_cmds - 1);
+	put16(max_body - DIGINET_CMD_MAX_LEN);
+}
+
+/* the default config, as diginet_session_config_default() gives it, scaled to fit u16 ms */
+static void config_default(unsigned flags)
+{
+	config(flags, 5, 100, 10000, 255, 25000, 3000, 2000, 48, 314);
+}
+
+enum { T_RAW = 0, T_FRAME, T_ANNOUNCE, T_TIME, T_SUBMIT, T_WAKE, T_CLOSE, T_FAIL, T_POLL };
+enum { C_DATA = 0, C_ACK, C_E0, C_E1, C_E2, C_E3, C_UNKNOWN };
+enum { FROM_DESK = 0, FROM_DESK2 = 1 << 3, FROM_HOST = 2 << 3, FROM_NOTDD = 3 << 3 };
+enum { TO_HOST = 0, TO_BCAST = 1 << 5, TO_OTHER = 2 << 5 };
+#define ACK_LAST 0x80
+
+static void t_frame(unsigned sel, unsigned send, unsigned ack, unsigned retry, const uint8_t *b, size_t n)
+{
+	put8(T_FRAME);
+	put8(sel);
+	put16(send);
+	put16(ack);
+	put8(retry);
+	put_rec(b, n);
+}
+
+/* mac: < 10 the host's MAC at that offset, 10..12 another host's, else none */
+static void t_announce(int e1, unsigned mac, unsigned name)
+{
+	put8(T_ANNOUNCE);
+	put8(e1);
+	put8(mac);
+	put8(name);
+}
+
+static void t_time(unsigned scale, unsigned n)
+{
+	put8(T_TIME);
+	put8(scale);
+	put16(n);
+}
+
+enum { US = 0, MSEC = 1, DECI = 2, SEC = 3 };
+
+static void t_tagged(unsigned kind, unsigned addr, unsigned display, unsigned len, const char *fill)
+{
+	put8(T_SUBMIT);
+	put8(kind - 1);
+	put8(addr);
+	put8(display);
+	put8(len - 3);
+	put(fill, len - 3);
+}
+
+static void t_rawcmd(unsigned kind, unsigned addr, unsigned display, const uint8_t *b, size_t n)
+{
+	put8(T_SUBMIT);
+	put8(kind - 1);
+	put8(addr);
+	put8(display);
+	put_rec(b, n);
+}
+
+/* e0, our e2, its a0, an e1 naming us: online */
+static void online(void)
+{
+	t_announce(0, 13, 0);
+	t_frame(C_ACK | FROM_DESK | TO_HOST | ACK_LAST, 1, 0, 0, NULL, 0);
+	t_announce(1, 0, 0);
+}
+
+static const uint8_t MUTE[3] = { 0x90, 0x08, 0x40 };
+
+static void transport_seeds(void)
+{
+	uint8_t f[DIGINET_MAX_FRAME_LEN];
+	struct diginet_header h = { .cmd = DIGINET_CMD_DATA, .send_counter = 0x200 };
+	struct diginet_cmd c;
+	const struct diginet_personality *c24 = diginet_personality_of(DIGINET_DESK_CONTROL24);
+
+	config_default(F_AUTO);
+	put8(T_POLL); put8(0); put_rec(NULL, 0);   /* idle: nothing due */
+	online();
+	emit("transport", "online");
+
+	/* data from the desk, ACKed with its send counter, a retry ACKed again */
+	config_default(F_AUTO);
+	online();
+	t_frame(C_DATA | FROM_DESK | TO_HOST, 0x105, 0x22, 0, MUTE, sizeof MUTE);
+	t_frame(C_DATA | FROM_DESK | TO_BCAST, 0x106, 0x22, 1, MUTE, sizeof MUTE);
+	t_frame(C_DATA | FROM_DESK | TO_HOST, 0x106, 0x22, 1, MUTE, sizeof MUTE);
+	t_frame(C_DATA | FROM_DESK | TO_HOST, 0x107, 0x22, 0, (const uint8_t *)"\0", 1);
+	t_time(DECI, 4);
+	emit("transport", "data-acked");
+
+	/* data before any session, from a desk the config names, then closed */
+	config_default(F_DESKSET);
+	t_frame(C_DATA | FROM_DESK | TO_HOST, 0x10, 0x01, 0, MUTE, sizeof MUTE);
+	put8(T_CLOSE);
+	t_frame(C_DATA | FROM_DESK | TO_HOST, 0x11, 0x01, 0, MUTE, sizeof MUTE);
+	put8(T_WAKE);
+	emit("transport", "data-before-session");
+
+	/* frames the session does not take: from us, for another host, from another desk, from
+	 * a MAC that is not Digidesign's, of a command it does not know, a desk's e2, an ACK of a
+	 * frame not in flight */
+	config_default(F_AUTO);
+	t_frame(C_DATA | FROM_DESK | TO_HOST, 1, 0, 0, MUTE, sizeof MUTE);
+	t_frame(C_E0 | FROM_NOTDD | TO_BCAST, 1, 0, 0, NULL, 0);
+	online();
+	t_frame(C_DATA | FROM_HOST | TO_HOST, 2, 0, 0, MUTE, sizeof MUTE);
+	t_frame(C_DATA | FROM_DESK | TO_OTHER, 3, 0, 0, MUTE, sizeof MUTE);
+	t_frame(C_DATA | FROM_DESK2 | TO_HOST, 4, 0, 0, MUTE, sizeof MUTE);
+	t_frame(C_UNKNOWN | FROM_DESK | TO_HOST, 5, 0, 0, NULL, 0);
+	t_frame(C_E2 | FROM_DESK | TO_HOST, 6, 0, 0, NULL, 0);
+	t_frame(C_ACK | FROM_DESK | TO_HOST, 7, 0x999, 0, NULL, 0);
+	t_frame(C_E1 | FROM_DESK | TO_BCAST, 8, 0, 0, MUTE, sizeof MUTE);   /* an announce too short */
+	put8(T_RAW); put_rec(golden("fader_move")->bytes, 20);
+	emit("transport", "filters");
+
+	/* an e2 nobody answers: retried until max_retries, dropped, then the wake times out */
+	config(F_AUTO, 3, 1, 60000, 0, 60000, 50, 0, 48, 314);
+	t_announce(0, 13, 1);
+	for (int i = 0; i < 5; i++)
+		t_time(MSEC, 1);
+	t_time(MSEC, 60);
+	emit("transport", "wake-unanswered");
+
+	/* a retransmission whose send fails still counts */
+	config(F_AUTO, 2, 1, 60000, 0, 60000, 50, 0, 48, 314);
+	t_announce(0, 13, 1);
+	put8(T_FAIL);
+	for (int i = 0; i < 4; i++)
+		t_time(MSEC, 1);
+	emit("transport", "retransmit-fails");
+
+	/* keepalives on their own clock, a desk retry holding them back, then silence */
+	config(F_AUTO, 1, 1, 10, 30, 1000, 3000, 0, 48, 314);
+	online();
+	for (int i = 0; i < 3; i++) {
+		t_time(MSEC, 11);
+		t_frame(C_ACK | FROM_DESK | TO_HOST | ACK_LAST, 9, 0, 0, NULL, 0);
+	}
+	t_frame(C_DATA | FROM_DESK | TO_HOST, 0x30, 0, 1, MUTE, sizeof MUTE);
+	t_time(MSEC, 11);
+	t_time(MSEC, 40);
+	t_time(SEC, 2);
+	emit("transport", "keepalive-silence");
+
+	/* the ways a session ends: e0, a desk e3, another host's e1, close */
+	config_default(F_AUTO);
+	online();
+	t_announce(0, 13, 0);
+	t_frame(C_ACK | FROM_DESK | TO_HOST | ACK_LAST, 1, 0, 0, NULL, 0);
+	t_announce(1, 3, 1);
+	t_frame(C_E3 | FROM_DESK | TO_HOST, 1, 0, 0, NULL, 0);
+	t_announce(0, 13, 2);
+	t_frame(C_ACK | FROM_DESK | TO_HOST | ACK_LAST, 1, 0, 0, NULL, 0);
+	t_announce(1, 10, 0);
+	put8(T_WAKE);
+	t_announce(0, 13, 0);
+	put8(T_CLOSE);
+	put8(T_CLOSE);
+	t_announce(0, 13, 0);
+	emit("transport", "session-ends");
+
+	/* a wake asked for while another host holds the desk */
+	config_default(0);
+	t_announce(1, 11, 0);
+	put8(T_WAKE);
+	emit("transport", "wake-foreign");
+
+	/* a manual wake, in the zero-sum mode, through poll */
+	config_default(F_ZERO);
+	put8(T_WAKE);
+	t_announce(0, 13, 0);
+	put8(T_WAKE);
+	h.cmd = DIGINET_CMD_ACK;
+	h.ack_counter = 0;
+	int n = diginet_frame_build(f, sizeof f, HOST, DESK, &h, NULL, 0, DIGINET_SUM_BODY);
+	put8(T_POLL); put8(0); put_rec(f, (size_t)n);
+	h.cmd = DIGINET_CMD_DATA;
+	n = diginet_frame_build(f, sizeof f, HOST, DESK, &h, MUTE, sizeof MUTE, DIGINET_SUM_BODY);
+	put8(T_POLL); put8(0); put_rec(f, (size_t)n);
+	t_announce(1, 4, 0);
+	put8(T_POLL); put8(1); put_rec(f, (size_t)n);   /* and its retransmission behind it */
+	put8(T_POLL); put8(2); put_rec(f, (size_t)n);   /* recv fails */
+	put8(T_POLL); put8(0); put_rec(NULL, 0);
+	emit("transport", "wake-poll");
+
+	/* latest wins: two values for one fader, then sent; one value for an input key, twice */
+	config_default(F_AUTO);
+	online();
+	t_tagged(DIGINET_KEY_FADER, 1, 0, 5, "\x10\x20");
+	t_tagged(DIGINET_KEY_FADER, 1, 0, 5, "\x11\x21");
+	t_tagged(DIGINET_KEY_INPUT, 0, 0, 3, "");
+	t_tagged(DIGINET_KEY_INPUT, 0, 0, 3, "");
+	t_time(MSEC, 1);
+	t_frame(C_ACK | FROM_DESK | TO_HOST | ACK_LAST, 9, 0, 0, NULL, 0);
+	emit("transport", "coalesce");
+
+	/* frames full by count, by bytes, and display writes paced */
+	config(F_AUTO, 5, 100, 60000, 0, 60000, 3000, 2000, 3, 30);
+	online();
+	for (unsigned i = 0; i < 8; i++)
+		t_tagged(DIGINET_KEY_RING, i, 0, 10, "\x01\x02\x03\x04\x05\x06\x07");
+	for (unsigned i = 0; i < 4; i++)
+		t_tagged(DIGINET_KEY_SCRIBBLE, i, 1, 12, "\x41\x42\x43\x44\x45\x46\x47\x48\x49");
+	for (int i = 0; i < 8; i++) {
+		t_time(US, 700);
+		t_frame(C_ACK | FROM_DESK | TO_HOST | ACK_LAST, 9, 0, 0, NULL, 0);
+		put8(T_POLL); put8(0); put_rec(NULL, 0);   /* the deadline of a paced queue */
+	}
+	emit("transport", "batches");
+
+	/* the queue filled while no session lives */
+	config_default(F_AUTO);
+	for (unsigned i = 0; i < DIGINET_QUEUE_MAX + 1; i++)
+		t_tagged(DIGINET_KEY_INPUT, 0, 0, 3, "");
+	t_tagged(DIGINET_KEY_METER, 1, 0, 3, "");
+	emit("transport", "queue-full");
+
+	/* raw commands: the system family refused whole and cut short, others queued and sent */
+	static const uint8_t SYS[6] = { 0xf0, 0x13, 0x01, 0x70, 0x00, 0xf7 };
+	config_default(F_AUTO | F_RAW);
+	online();
+	t_rawcmd(DIGINET_KEY_LEDS, 1, 0, SYS, 6);
+	t_rawcmd(DIGINET_KEY_LEDS, 1, 0, NULL, 0);
+	if (diginet_fader_encode(c24, 2, 300, &c) == DIGINET_OK)
+		t_rawcmd(DIGINET_KEY_FADER, 2, 0, c.bytes, c.len);
+	t_time(MSEC, 1);
+	emit("transport", "submit-system");
+	config_default(F_AUTO | F_RAW);
+	t_rawcmd(DIGINET_KEY_LEDS, 1, 0, SYS, 4);
+	emit("transport", "submit-system-cut-short");
+}
+
 int main(int argc, char **argv)
 {
 	(void)fails;
@@ -350,6 +613,7 @@ int main(int argc, char **argv)
 	frame_seeds();
 	decode_seeds();
 	codec_seeds();
+	transport_seeds();
 	free(S.p);
 	return 0;
 }
