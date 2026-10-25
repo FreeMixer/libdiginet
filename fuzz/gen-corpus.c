@@ -212,9 +212,13 @@ static void decode_seeds(void)
 	BODY("no-status", 0x07, 0x41, 0x90, 0x08, 0x40);
 	BODY("status-f1", 0xf1, 0x90, 0x08, 0x40, 0xff);
 	BODY("channel-cut-short", 0x90, 0x08);
+	/* a message that runs past the body, its one byte left a status byte */
+	BODY("status-at-end", 0x90, 0xc0);
 	BODY("sysex-no-f7", 0xf0, 0x13, 0x01, 0x40, 0x00);
 	BODY("one-data-byte", 0xc0, 0x05, 0xd0, 0x7f, 0x10);
 	BODY("aftertouch", 0xa0, 0x10, 0x20);
+	/* a system exclusive between a message and data bytes that running status would take */
+	BODY("status-cancelled", 0x90, 0x08, 0x40, 0xf0, 0x13, 0x01, 0x20, 0x01, 0x40, 0xf7, 0x08, 0x40);
 
 	/* the decoder's kinds */
 	BODY("fader-msb-only", 0xb0, 0x03, 0x40, 0x90, 0x08, 0x40);
@@ -224,10 +228,17 @@ static void decode_seeds(void)
 	BODY("jog-vpot", 0xb0, 0x5c, 0x41, 0xb0, 0x45, 0x3f, 0x58, 0x10);
 	BODY("cc-other", 0xb0, 0x60, 0x10);
 	BODY("zone-key", 0x90, 0x05, 0x58, 0x90, 0x05, 0x1d);
+	/* each edge of the zones and of the control changes, from both sides: strip 23, zone 18,
+	 * zone 1D, id 1E; CC 20 alone, 3F, the first and the last V-Pot, 58, the jog; a fader MSB
+	 * followed by a key on 20 + tt, which is no LSB */
+	BODY("key-edges", 0x90, 0x05, 0x57, 0x90, 0x05, 0x58, 0x90, 0x05, 0x5d, 0x90, 0x05, 0x1e);
+	BODY("cc-edges", 0xb0, 0x20, 0x10, 0xb0, 0x3f, 0x10, 0xb0, 0x40, 0x41, 0xb0, 0x57, 0x3f, 0xb0, 0x58,
+	     0x41, 0xb0, 0x5b, 0x41, 0xb0, 0x5c, 0x40, 0xb0, 0x03, 0x40, 0x90, 0x23, 0x40);
 	BODY("touch", 0x90, 0x09, 0x45);
 	BODY("sysex-short", 0xf0, 0x13, 0x01, 0xf7);
 	BODY("sysex-other-maker", 0xf0, 0x12, 0x01, 0x10, 0xf7);
 	BODY("sysex-other-fn", 0xf0, 0x13, 0x01, 0x55, 0x00, 0xf7);
+	BODY("meter-not-thermometer", 0xf0, 0x13, 0x01, 0x10, 0x00, 0x00, 0x05, 0xf7);
 	BODY("sysex-wrong-sizes", 0xf0, 0x13, 0x01, 0x00, 0x01, 0xf7, 0xf0, 0x13, 0x01, 0x10, 0x00, 0xf7,
 	     0xf0, 0x13, 0x01, 0x20, 0xf7, 0xf0, 0x13, 0x01, 0x40, 0x00, 0xf7, 0xf0, 0x13, 0x01, 0x30,
 	     0x19, 0xf7, 0xf0, 0x13, 0x01, 0x40, 0x00, 0x00, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47,
@@ -238,6 +249,8 @@ static void decode_seeds(void)
 	BODY("system-cut-short", 0xf0, 0x13, 0x01, 0x70);
 	BODY("system-in-sysex", 0xf0, 0x01, 0xf0, 0x13, 0x01, 0x70, 0xf7);
 	BODY("system-after-message", 0x90, 0x08, 0x40, 0xf0, 0x13, 0x00, 0x70, 0x01, 0x02);
+	/* function 70 of another maker is not the family */
+	BODY("system-other-maker", 0xf0, 0x12, 0x01, 0x70, 0xf7);
 
 	/* what the encoders make, read by both personalities */
 	if (diginet_ring_encode(c24, 5, diginet_ring_fill(9) | 1, &c) == DIGINET_OK)
@@ -309,6 +322,28 @@ static void codec_seeds(void)
 		put("\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a", 10);
 	}
 	emit("codec", "out-of-range");
+
+	/* every range at its last accepted value, for both desks: out-of-range holds the first
+	 * refused one, so a bound moved by one either way shows on one of the two */
+	for (unsigned desk = C24; desk <= PC; desk++) {
+		unsigned last = desk == C24 ? 23 : 7;
+		static const uint8_t pl19[19] = { 0x7f };
+		op(0, desk); put8(last); put16(DIGINET_FADER_MAX);
+		op(1, desk); put8(0x7f); put8(0x3f); put8(1);
+		op(2, desk); put8(last); put8(1);
+		op(3, desk); put8(last); put16((uint16_t)-64);
+		op(3, desk); put8(0); put16(63);
+		op(4, desk); put16((uint16_t)-64);
+		op(4, desk); put16(63);
+		op(5, desk); put8(last); put16(0x7fff);
+		op(6, desk); put8(0x1f); put8(1); put8(14);
+		op(7, desk); put8(last); put8(0x7f);
+		op(8, desk); put8(0x7f);
+		op(9, desk); put8(0x7f); put("\x7f\x7f\x7f\x7f\x7f\x7f\x7f\x7f", 8);
+		op(10, desk); put8(0x7f); put("\x7f\x7f\x7f\x7f\x7f\x7f\x7f\x7f", 8);
+		op(11, desk); put8(0x7f); put8(0x7f); put8(19); put(pl19, 19);
+	}
+	emit("codec", "edges");
 
 	/* the mutants' seeds */
 	op(0, C24); put8(24); put16(0);
@@ -543,6 +578,97 @@ static void transport_seeds(void)
 	t_announce(1, 11, 0);
 	put8(T_WAKE);
 	emit("transport", "wake-foreign");
+
+	/* a close while another host holds the desk: no e3 */
+	config_default(0);
+	t_announce(1, 11, 0);
+	put8(T_CLOSE);
+	emit("transport", "close-foreign");
+
+	/* without auto_wake: woken by hand, online, then the desk's e0 ends it */
+	config_default(0);
+	t_announce(0, 13, 0);
+	put8(T_WAKE);
+	t_frame(C_ACK | FROM_DESK | TO_HOST | ACK_LAST, 1, 0, 0, NULL, 0);
+	t_announce(1, 0, 0);
+	t_announce(0, 13, 0);
+	emit("transport", "offline-e0");
+
+	/* online, then nothing from the desk for longer than offline_ms */
+	config(F_AUTO, 5, 100, 60000, 0, 1000, 3000, 0, 48, 314);
+	online();
+	t_time(SEC, 2);
+	emit("transport", "silence");
+
+	/* the e1 naming the host before the a0 of the e2: online only with both */
+	config_default(F_AUTO);
+	t_announce(0, 13, 0);
+	t_announce(1, 0, 0);
+	t_frame(C_ACK | FROM_DESK | TO_HOST | ACK_LAST, 1, 0, 0, NULL, 0);
+	emit("transport", "e1-before-ack");
+
+	/* the host's MAC at the last offset of the 15 leading bytes it fits */
+	config_default(F_AUTO);
+	t_announce(0, 13, 0);
+	t_frame(C_ACK | FROM_DESK | TO_HOST | ACK_LAST, 1, 0, 0, NULL, 0);
+	t_announce(1, 9, 0);
+	emit("transport", "e1-mac-at-9");
+
+	/* an e2 unanswered, with time passing in steps of 6 and 5 ms against a 10 ms ack timeout */
+	config(F_AUTO, 3, 10, 60000, 0, 60000, 3000, 0, 48, 314);
+	t_announce(0, 13, 0);
+	t_time(MSEC, 6);
+	t_time(MSEC, 5);
+	t_time(MSEC, 6);
+	t_time(MSEC, 5);
+	emit("transport", "retry-timing");
+
+	/* a 10 ms keepalive, time passing in steps of 5 ms, each keepalive ACKed */
+	config(F_AUTO, 5, 100, 10, 0, 60000, 3000, 0, 48, 314);
+	online();
+	for (int i = 0; i < 6; i++) {
+		t_time(MSEC, 5);
+		t_frame(C_ACK | FROM_DESK | TO_HOST | ACK_LAST, 9, 0, 0, NULL, 0);
+	}
+	emit("transport", "keepalive-clock");
+
+	/* two display writes, one a frame, against a 2000 us gap: the second goes exactly when
+	 * the gap has passed */
+	config(F_AUTO, 5, 100, 60000, 0, 60000, 3000, 2000, 1, 314);
+	online();
+	t_tagged(DIGINET_KEY_SCRIBBLE, 1, 1, 12, "\x41\x42\x43\x44\x45\x46\x47\x48\x49");
+	t_tagged(DIGINET_KEY_SCRIBBLE, 2, 1, 12, "\x41\x42\x43\x44\x45\x46\x47\x48\x49");
+	t_time(US, 1000);
+	t_frame(C_ACK | FROM_DESK | TO_HOST | ACK_LAST, 9, 0, 0, NULL, 0);
+	t_time(US, 2000);
+	emit("transport", "display-gap-exact");
+
+	/* a desk retry holds the host back 10 ms; a command waits, then goes exactly as the
+	 * back-off ends */
+	config(F_AUTO, 5, 100, 60000, 10, 60000, 3000, 0, 48, 314);
+	online();
+	t_frame(C_DATA | FROM_DESK | TO_HOST, 0x40, 0, 1, MUTE, sizeof MUTE);
+	t_tagged(DIGINET_KEY_FADER, 1, 0, 5, "\x10\x20");
+	t_time(MSEC, 5);
+	t_time(MSEC, 5);
+	emit("transport", "backoff-exact");
+
+	/* the wake timeout and the silence, each reached exactly */
+	config(F_AUTO, 0, 100, 60000, 0, 60000, 5, 0, 48, 314);
+	t_announce(0, 13, 0);
+	t_time(MSEC, 5);
+	emit("transport", "wake-timeout-exact");
+	config(F_AUTO, 5, 100, 60000, 0, 7, 3000, 0, 48, 314);
+	online();
+	t_time(MSEC, 7);
+	emit("transport", "silence-exact");
+
+	/* the same desk counter twice, with no retry: two frames, both delivered */
+	config_default(F_AUTO);
+	online();
+	t_frame(C_DATA | FROM_DESK | TO_HOST, 0x105, 0, 0, MUTE, sizeof MUTE);
+	t_frame(C_DATA | FROM_DESK | TO_HOST, 0x105, 0, 0, MUTE, sizeof MUTE);
+	emit("transport", "data-repeat");
 
 	/* a manual wake, in the zero-sum mode, through poll */
 	config_default(F_ZERO);
