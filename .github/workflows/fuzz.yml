@@ -1,9 +1,11 @@
 name: fuzz
 # The libFuzzer harnesses of fuzz/ (fuzz/README.md), on every push and pull request: each built
 # with clang under AddressSanitizer and UndefinedBehaviorSanitizer and fuzzed for 60 s from its
-# seed corpus, every mutant of fuzz/mutants/ found by its own property, the coverage witness held
-# to its floor, and the corpus what fuzz-corpus writes. An input that crashes a harness is
-# uploaded as the fuzz-findings artifact. make test stays in ci.yml.
+# seed corpus; every patch of fuzz/sabotage/ found at the property it names; every check's own
+# mutant record met, at that check, on its seed; the coverage witness held to its floor, with
+# every check reached; the corpus what fuzz-corpus writes; and each harness linked fully static
+# and run over its corpus. An input that crashes a harness is uploaded as the fuzz-findings
+# artifact. make test stays in ci.yml.
 on:
   push:
     branches: [main]
@@ -14,14 +16,17 @@ jobs:
   fuzz:
     name: fuzz the frame, the command grammar, the codecs and the session
     runs-on: ubuntu-latest
-    # A backstop: fuzz-run spends 60 s on each of four harnesses and fuzz-sabotage runs seeds only.
-    timeout-minutes: 30
+    # A backstop: fuzz-run spends 60 s on each of four harnesses, and fuzz-sabotage and
+    # fuzz-records run seeds only.
+    timeout-minutes: 40
     container: fedora:44
     steps:
-      - name: clang, libFuzzer and llvm-cov
-        run: dnf -y install --setopt=install_weak_deps=False clang compiler-rt llvm gcc make gawk git diffutils
+      - name: clang, libFuzzer, llvm-cov and the static libc
+        run: |
+          dnf -y install --setopt=install_weak_deps=False --setopt=retries=10 clang compiler-rt llvm \
+            gcc make gawk git diffutils glibc-static binutils
       - uses: actions/checkout@v4
-      # fuzz-sabotage applies each mutant with git apply and restores it with git checkout
+      # fuzz-sabotage and fuzz-records change the tree and put it back with git
       - name: Trust the checkout
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Build the harnesses (clang, libFuzzer, ASan, UBSan)
@@ -30,13 +35,20 @@ jobs:
         run: make fuzz-corpus-check
       - name: Fuzz each harness for 60 s
         run: make fuzz-run FUZZ_TIME=60
-      # a property no mutant can break checks nothing: each one-line mutant must make its
-      # harness abort on a seed, in that property's own check
-      - name: Find every mutant, each by its own property
+      # a property no breakage can make fail checks nothing: each patch must make its harness
+      # abort on the seed it names, in the property it names
+      - name: Find every sabotage patch, each in its own property
         run: make fuzz-sabotage
-      # the seed corpus must keep reaching the lines it reaches today and every property check
+      # every check records the one-line bug it catches and the seed it catches it on, and each
+      # record, alone, makes that check abort on that seed; a check with neither a record nor a
+      # not-a-property line is red
+      - name: Meet every check's record
+        run: make fuzz-records
+      # the seed corpus must keep reaching the reader lines it reaches today and every check
       - name: Hold the coverage floor
-        run: make fuzz-cov
+        run: make fuzz-coverage
+      - name: Each harness linked fully static, over its corpus
+        run: make fuzz-static
       - name: Upload the crashing inputs
         if: failure()
         uses: actions/upload-artifact@v4
