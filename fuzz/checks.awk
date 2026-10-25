@@ -59,9 +59,12 @@ BEGIN { FS = "|"; if (sep == "") sep = "\t" }
 	if (code ~ /(^|[^A-Za-z0-9_])abort\(\);/) site[++ns] = ln
 }
 
-# the first line of the statement that ends on line l
+# the first line of the statement that ends on line l; a whole control line above it (`for (...)`,
+# `while (...)`, `if (...)`, `else`) is a statement of its own, as tools/check reads a guard, so a
+# comment above that line is not the check's
 function stmt_start(l) {
-	while (l > 1 && C[l - 1] != "" && C[l - 1] !~ /[;{}:]$/) l--
+	while (l > 1 && C[l - 1] != "" && C[l - 1] !~ /[;{}:]$/ &&
+	       C[l - 1] !~ /^(for|while|if)[ \t]*\(.*\)$/ && C[l - 1] !~ /^else$/) l--
 	return l
 }
 
