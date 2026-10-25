@@ -1,0 +1,16 @@
+Breaks the check of fuzz/fuzz_codec.c:265 (the ProControl gets 4 scribble characters, not 8).
+Caught by the seed input "encoders-procontrol" of fuzz_codec.
+
+diff --git a/src/diginet_codec.c b/src/diginet_codec.c
+index 89a2aed..ea8e752 100644
+--- a/src/diginet_codec.c
++++ b/src/diginet_codec.c
+@@ -11,7 +11,7 @@
+ 
+ static const struct diginet_personality personalities[] = {
+ 	{ DIGINET_DESK_CONTROL24,  "CNTRL|24", 0x01, 24, 4, 0x19 },
+-	{ DIGINET_DESK_PROCONTROL, "MAINUNIT", 0x00,  8, 8, 0x09 },
++	{ DIGINET_DESK_PROCONTROL, "MAINUNIT", 0x00,  8, 4, 0x09 },
+ };
+ 
+ const struct diginet_personality *diginet_personality_from_name(const char *name)

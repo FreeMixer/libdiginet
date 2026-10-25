@@ -1,0 +1,16 @@
+Breaks the check of fuzz/fuzz_transport.c:784 (a newer command takes the queued one's key but not its bytes).
+Caught by the seed input "coalesce" of fuzz_transport.
+
+diff --git a/transport/src/diginet_session.c b/transport/src/diginet_session.c
+index 72e8c8d..b2a748b 100644
+--- a/transport/src/diginet_session.c
++++ b/transport/src/diginet_session.c
+@@ -336,7 +336,7 @@ int diginet_session_submit(struct diginet_session *s, const struct diginet_cmd *
+ 	if (coalescable(c->key)) {
+ 		for (unsigned i = 0; i < s->queued; i++) {
+ 			if (s->queue[i].key == c->key) {
+-				s->queue[i] = *c;   /* latest wins, in place */
++				s->queue[i].key = c->key;   /* latest wins, in place */
+ 				s->stats.coalesced++;
+ 				return DIGINET_OK;
+ 			}

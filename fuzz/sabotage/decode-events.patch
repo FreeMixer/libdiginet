@@ -1,0 +1,16 @@
+Breaks the check of fuzz/fuzz_decode.c:162 (the decoder reads a fader LSB and does not step past it).
+Caught by the seed input "fader_move" of fuzz_decode.
+
+diff --git a/src/diginet_decode.c b/src/diginet_decode.c
+index 8a04c28..0f2669d 100644
+--- a/src/diginet_decode.c
++++ b/src/diginet_decode.c
+@@ -137,7 +137,7 @@ int diginet_decoder_next(struct diginet_decoder *d, struct diginet_event *ev)
+ 		if (diginet_msg_next(&peek, &lsb) == 1 && (lsb.status & 0xf0) == 0xb0 &&
+ 		    lsb.d1 == 0x20 + m.d1) {
+ 			ev->value |= (uint16_t)((lsb.d2 >> 4) & 7);
+-			d->c = peek;
++			(void)peek;
+ 		} else {
+ 			ev->lsb_missing = 1;
+ 		}
