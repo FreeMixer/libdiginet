@@ -438,14 +438,16 @@ FUZZ_CHECK check_text_scribble(const char *text, uint8_t *chars, size_t n)
 
 FUZZ_CHECK check_text_seg7(void)
 {
+	int same = 1;
+	for (int c = 0; c < 256; c++)
+		same &= diginet_seg7((char)c) == owed_seg7((char)c);
 	/* Each character is drawn with the segments a seven-segment display lights for it, and a
 	 * character the display cannot draw has no pattern.
 	 * contract: docs/protocol.md:136; diginet_codec.h:148-151
 	 * mutant: src/diginet_codec.c:312 `0x33` -> `0x32`
 	 * input: counter-text */
-	for (int c = 0; c < 256; c++)
-		if (diginet_seg7((char)c) != owed_seg7((char)c))
-			abort();
+	if (!same)
+		abort();
 }
 
 FUZZ_CHECK check_text_counter(const char *text, uint8_t seg[SPEC_DIGITS], uint8_t *dots)
