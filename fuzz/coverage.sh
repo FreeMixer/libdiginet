@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 #
-# THE COVERAGE WITNESS (`make fuzz-cov`). Each harness, built for llvm-cov without
+# THE COVERAGE WITNESS (`make fuzz-coverage`). Each harness, built for llvm-cov without
 # sanitizers, runs once over its seed corpus (-runs=0 executes the corpus and nothing else);
 # this prints the line coverage of the reader functions the harness exists to drive, and
 # every line of them the corpus never reached. A file's other functions (log strings, the
@@ -18,7 +18,9 @@
 # fuzz/fuzz_<harness>.c and the statement that guards it (fuzz/checks.awk), must be executed
 # by at least one seed. A check no seed reaches is a property nobody tests, and the
 # library's line count cannot see it; this names the harness file and the line of every
-# such check and turns red.
+# such check and turns red. So does a check whose comment holds no `mutant:` and `input:`
+# record and no `not a property:` line (fuzz/records.sh proves the records): a check that
+# names no bug it catches is a property nobody showed can fail.
 #
 # Usage: coverage.sh <cov build dir> <harness>...   (LLVM_COV names llvm-cov)
 set -eu
@@ -35,13 +37,13 @@ dead=
 funcs() {
 	case $1 in
 	frame) echo src/diginet_frame.c :: \
-		rd16 rd32 wr16 wr32 diginet_sum16 diginet_frame_is_keepalive diginet_frame_parse \
-		diginet_frame_build copy_strz diginet_announce_parse ;;
+		rd16 rd32 wr16 wr32 diginet_sum16 diginet_mac_is_digidesign diginet_frame_is_keepalive \
+		diginet_frame_parse diginet_frame_build copy_strz diginet_announce_parse ;;
 	decode) echo src/diginet_msg.c src/diginet_decode.c src/diginet_codec.c :: \
 		diginet_cursor_init channel_data_len diginet_msg_next diginet_decoder_init \
 		decode_note decode_sysex diginet_decoder_next diginet_body_check ;;
 	codec) echo src/diginet_codec.c :: \
-		diginet_personality_of put3 diginet_sysex_encode \
+		diginet_personality_from_name diginet_personality_of put3 diginet_sysex_encode \
 		diginet_fader_encode diginet_button_encode diginet_touch_encode delta_byte \
 		diginet_vpot_encode diginet_jog_encode diginet_ring_dot diginet_ring_fill \
 		diginet_ring_encode diginet_meter_mask diginet_meter_segments diginet_meter_encode \
@@ -94,10 +96,15 @@ for h in "$@"; do
 	if [ "$nchk" -eq 0 ]; then
 		echo "  CHECKS: no property check found in $src"
 		dead="$dead $h"
-	elif awk -F: '$4 == "0" { n++ } END { exit !n }' "$B/$h.checks"; then
-		awk -F: '$4 == "0" { t = $0; sub(/^([^:]*:){4}/, "", t)
+	elif awk -F: '$4 == "0" && $5 != "not-a-property" { n++ } END { exit !n }' "$B/$h.checks"; then
+		awk -F: '$4 == "0" && $5 != "not-a-property" { t = $0; sub(/^([^:]*:){5}/, "", t)
 			printf "  CHECK: %s:%d no seed reaches (abort at line %d): %s\n", $1, $2, $3, t }' \
 			"$B/$h.checks"
+		dead="$dead $h"
+	elif awk -F: '$5 == "NONE" || $5 == "BAD" { n++ } END { exit !n }' "$B/$h.checks"; then
+		awk -F: '$5 == "NONE" || $5 == "BAD" { t = $0; sub(/^([^:]*:){5}/, "", t)
+			printf "  RECORD: %s:%d has no mutant: and input: record and is no stop after a failed allocation (%s): %s\n",
+			       $1, $3, $5, t }' "$B/$h.checks"
 		dead="$dead $h"
 	else
 		echo "  checks: all $nchk property checks of $src reached"
@@ -115,7 +122,7 @@ for h in "$@"; do
 	fi
 done
 
-[ -z "$low" ] || echo "make fuzz-cov: RED -- below the coverage floor:$low"
-[ -z "$dead" ] || echo "make fuzz-cov: RED -- harness checks no seed reaches:$dead"
+[ -z "$low" ] || echo "make fuzz-coverage: RED -- below the coverage floor:$low"
+[ -z "$dead" ] || echo "make fuzz-coverage: RED -- harness checks no seed reaches, or with no record:$dead"
 [ -z "$low$dead" ] || exit 1
-echo "make fuzz-cov: every harness at or above its coverage floor, every check reached"
+echo "make fuzz-coverage: every harness at or above its coverage floor, every check reached"

@@ -75,11 +75,12 @@ and the Python runtime (`pip install kaitaistruct==0.11`). CI runs it in a Debia
 ## Fuzzing
 
 Every reader of desk bytes has a libFuzzer harness in `fuzz/`, with a seed corpus, a coverage
-floor and one mutant per property; [fuzz/README.md](fuzz/README.md) says what each checks.
-They need clang with libFuzzer, and `llvm-cov` for the coverage witness:
+floor, a recorded breakage for every check and one sabotage patch per property;
+[fuzz/README.md](fuzz/README.md) says what each checks. They need clang with libFuzzer,
+`llvm-cov` for the coverage witness and the static libc for the static build:
 
 ```
-make fuzz fuzz-run FUZZ_TIME=60 fuzz-sabotage fuzz-cov
+make fuzz fuzz-run FUZZ_TIME=60 fuzz-sabotage fuzz-records fuzz-coverage fuzz-static
 ```
 
 ## CI
@@ -88,7 +89,8 @@ make fuzz fuzz-run FUZZ_TIME=60 fuzz-sabotage fuzz-cov
 debian:bookworm and debian:trixie containers, `make test` once more on the bare runner (where
 the namespace test can run), and `make ksy-check` in a Debian container with the compiler
 installed. `.github/workflows/fuzz.yml` builds the harnesses in fedora:44, fuzzes each for 60 s
-and runs `make fuzz-corpus-check`, `make fuzz-sabotage` and `make fuzz-cov`.
+and runs `make fuzz-corpus-check`, `make fuzz-sabotage`, `make fuzz-records`,
+`make fuzz-coverage` and `make fuzz-static`.
 
 ## Packages
 
