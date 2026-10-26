@@ -457,11 +457,12 @@ FUZZ_CHECK check_text_seg7(void)
 		abort();
 }
 
-FUZZ_CHECK check_text_counter(const char *text, uint8_t seg[SPEC_DIGITS], uint8_t *dots)
+FUZZ_CHECK check_text_counter(const char *text, uint8_t *seg, size_t cap, uint8_t *dots)
 {
 	uint8_t want_seg[SPEC_DIGITS], want_dots = 0;
 	int want = owed_counter_text(text, want_seg, &want_dots);
-	memset(seg, 0xa5, SPEC_DIGITS);
+	/* the whole buffer the call gets, so a write past the digits shows */
+	memset(seg, 0xa5, cap);
 	*dots = 0xa5;
 	int r = diginet_counter_text(text, seg, dots);
 	/* The counter text is the digits and dots diginet_codec.h:152-158 gives, or refused.
@@ -471,6 +472,12 @@ FUZZ_CHECK check_text_counter(const char *text, uint8_t seg[SPEC_DIGITS], uint8_
 	 * mutant: src/diginet_codec.c:345 `!dot[n - 1]` -> `1`
 	 * input: counter-text */
 	if (r != want || (r == SPEC_OK && (memcmp(seg, want_seg, SPEC_DIGITS) || *dots != want_dots)))
+		abort();
+	/* The digits are seg[8]: no byte past them is written.
+	 * contract: diginet_codec.h:155, seg[DIGINET_COUNTER_DIGITS]
+	 * mutant: src/diginet_codec.c:367 `*dots = d;` -> `*dots = d, seg[DIGINET_COUNTER_DIGITS] = 0;`
+	 * input: counter-text */
+	if (!fuzz_all(seg + SPEC_DIGITS, cap - SPEC_DIGITS, 0xa5))
 		abort();
 }
 
@@ -621,7 +628,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 			}
 			text_arg(&in, text);
 			check_text_seg7();
-			check_text_counter(text, k.bytes, &dots);
+			check_text_counter(text, k.bytes, sizeof k.bytes, &dots);
 			/* a text the counter cannot show gives no digits, so no counter write */
 			if (owed_counter_text(text, k.bytes, &dots) != SPEC_OK)
 				continue;
