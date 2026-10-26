@@ -1,4 +1,4 @@
-Breaks the check of fuzz/fuzz_codec.c:284 (only an empty 0x70 message is refused).
+Breaks the check of fuzz/fuzz_codec.c:290 (only an empty 0x70 message is refused).
 Caught by the seed input "sysex-system" of fuzz_codec.
 
 diff --git a/src/diginet_codec.c b/src/diginet_codec.c

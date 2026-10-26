@@ -60,6 +60,13 @@ static void put16(unsigned v)
 	put8(v >> 8 & 0xff);
 }
 
+/* little-endian, as fuzz_u32() reads it */
+static void put32(uint32_t v)
+{
+	put16(v & 0xffff);
+	put16(v >> 16);
+}
+
 /* a length-prefixed record, as fuzz_record() reads it */
 static void put_rec(const uint8_t *p, size_t n)
 {
@@ -276,50 +283,57 @@ static void codec_seeds(void)
 
 	/* every encoder, in range, for both desks */
 	for (unsigned desk = C24; desk <= PC; desk++) {
-		op(0, desk); put8(1); put16(700);
-		op(1, desk); put8(DIGINET_BTN_MUTE); put8(2); put8(1);
-		op(1, desk); put8(DIGINET_BTN_TOUCH); put8(3); put8(0);
-		op(1, desk); put8(0x10); put8(DIGINET_ZONE_FIRST); put8(1);
-		op(2, desk); put8(4); put8(1);
-		op(3, desk); put8(5); put16((uint16_t)-3);
-		op(4, desk); put16(7);
-		op(5, desk); put8(6); put16(0x7fff);
-		op(6, desk); put8(7); put8(1); put8(10);
-		op(6, desk); put8(24); put8(0); put8(0);
-		op(7, desk); put8(1); put8(DIGINET_AUTO_TOUCH);
-		op(8, desk); put8(0x7f);
-		op(9, desk); put8(0x20); put("OMX1Mix8", 8);
+		op(0, desk); put32(1); put32(700);
+		op(1, desk); put32(DIGINET_BTN_MUTE); put32(2); put32(1);
+		op(1, desk); put32(DIGINET_BTN_TOUCH); put32(3); put32(0);
+		op(1, desk); put32(0x10); put32(DIGINET_ZONE_FIRST); put32(1);
+		op(2, desk); put32(4); put32(1);
+		op(3, desk); put32(5); put32((uint32_t)-3);
+		op(4, desk); put32(7);
+		op(5, desk); put32(6); put16(0x7fff);
+		op(6, desk); put32(7); put32(1); put32(10);
+		op(6, desk); put32(24); put32(0); put32(0);
+		op(7, desk); put32(1); put32(DIGINET_AUTO_TOUCH);
+		op(8, desk); put32(0x7f);
+		op(9, desk); put32(0x20); put("OMX1Mix8", 8);
 		op(10, desk); put8(0x05); put(seg, 8);
 		op(11, desk); put8(0x01); put8(DIGINET_FN_METER); put8(3); put(pl, 3);
 		emit("codec", desk == C24 ? "encoders-control24" : "encoders-procontrol");
 	}
 
 	/* every encoder out of range, and without a personality */
-	op(0, C24); put8(0); put16(DIGINET_FADER_MAX + 1);
-	op(1, C24); put8(0x80); put8(0); put8(0);
-	op(1, C24); put8(0); put8(0x40); put8(0);
-	op(2, C24); put8(24); put8(1);
-	op(3, C24); put8(0); put16(64);
-	op(3, C24); put8(24); put16(0);
-	op(4, C24); put16((uint16_t)-65);
-	op(5, C24); put8(0); put16(0x8000);
-	op(5, C24); put8(24); put16(1);
-	op(6, C24); put8(0x20); put8(0); put8(1);
-	op(6, C24); put8(0); put8(0); put8(15);
-	op(7, C24); put8(0); put8(0x80);
-	op(7, C24); put8(24); put8(0);
-	op(8, C24); put8(0x80);
-	op(9, C24); put8(0x80); put("abcdefgh", 8);
-	op(9, C24); put8(0x01); put("ab\x80" "defgh", 8);
+	op(0, C24); put32(0); put32(DIGINET_FADER_MAX + 1);
+	op(1, C24); put32(0x80); put32(0); put32(0);
+	op(1, C24); put32(0); put32(0x40); put32(0);
+	op(2, C24); put32(24); put32(1);
+	op(3, C24); put32(0); put32(64);
+	op(3, C24); put32(24); put32(0);
+	op(4, C24); put32((uint32_t)-65);
+	op(5, C24); put32(0); put16(0x8000);
+	op(5, C24); put32(24); put16(1);
+	op(6, C24); put32(0x20); put32(0); put32(1);
+	op(6, C24); put32(0); put32(0); put32(15);
+	op(7, C24); put32(0); put32(0x80);
+	op(7, C24); put32(24); put32(0);
+	op(8, C24); put32(0x80);
+	op(9, C24); put32(0x80); put("abcdefgh", 8);
+	op(9, C24); put32(0x01); put("ab\x80" "defgh", 8);
 	op(10, C24); put8(0x80); put(seg, 8);
 	op(10, C24); put8(0); put8(0x80); put(seg + 1, 7);
 	op(11, C24); put8(0x80); put8(0x10); put8(0);
 	op(11, C24); put8(0x01); put8(0x80); put8(0);
 	op(11, C24); put8(0x01); put8(0x10); put8(20); put("01234567890123456789", 20);
 	op(11, C24); put8(0x01); put8(0x10); put8(1); put8(0x80);
+	/* each argument 1, at its width: only the missing personality is wrong */
 	for (unsigned k = 0; k <= 10; k++) {
+		static const uint8_t U32S[11] = { 2, 3, 2, 2, 1, 1, 3, 2, 1, 1, 0 };
 		op(k, NONE);
-		put("\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a", 10);
+		for (unsigned i = 0; i < U32S[k]; i++)
+			put32(1);
+		if (k == 5)
+			put16(1);
+		if (k >= 9)
+			put("\x01\x02\x03\x04\x05\x06\x07\x08\x09", k == 9 ? 8 : 9);
 	}
 	emit("codec", "out-of-range");
 
@@ -328,27 +342,59 @@ static void codec_seeds(void)
 	for (unsigned desk = C24; desk <= PC; desk++) {
 		unsigned last = desk == C24 ? 23 : 7;
 		static const uint8_t pl19[19] = { 0x7f };
-		op(0, desk); put8(last); put16(DIGINET_FADER_MAX);
-		op(1, desk); put8(0x7f); put8(0x3f); put8(1);
-		op(2, desk); put8(last); put8(1);
-		op(3, desk); put8(last); put16((uint16_t)-64);
-		op(3, desk); put8(0); put16(63);
-		op(4, desk); put16((uint16_t)-64);
-		op(4, desk); put16(63);
-		op(5, desk); put8(last); put16(0x7fff);
-		op(6, desk); put8(0x1f); put8(1); put8(14);
-		op(7, desk); put8(last); put8(0x7f);
-		op(8, desk); put8(0x7f);
-		op(9, desk); put8(0x7f); put("\x7f\x7f\x7f\x7f\x7f\x7f\x7f\x7f", 8);
+		op(0, desk); put32(last); put32(DIGINET_FADER_MAX);
+		op(1, desk); put32(0x7f); put32(0x3f); put32(1);
+		op(2, desk); put32(last); put32(1);
+		op(3, desk); put32(last); put32((uint32_t)-64);
+		op(3, desk); put32(0); put32(63);
+		op(4, desk); put32((uint32_t)-64);
+		op(4, desk); put32(63);
+		op(5, desk); put32(last); put16(0x7fff);
+		op(6, desk); put32(0x1f); put32(1); put32(14);
+		op(7, desk); put32(last); put32(0x7f);
+		op(8, desk); put32(0x7f);
+		op(9, desk); put32(0x7f); put("\x7f\x7f\x7f\x7f\x7f\x7f\x7f\x7f", 8);
 		op(10, desk); put8(0x7f); put("\x7f\x7f\x7f\x7f\x7f\x7f\x7f\x7f", 8);
 		op(11, desk); put8(0x7f); put8(0x7f); put8(19); put(pl19, 19);
 	}
 	emit("codec", "edges");
 
+	/* each argument wider than a byte (or than 16 bits) whose low byte (or 16 bits) is in range,
+	 * so an encoder that cuts it short before its range check shows; and the flags on with
+	 * their low byte zero */
+	op(0, C24); put32(0x100); put32(0);
+	op(0, C24); put32(0); put32(0x10000);
+	op(1, C24); put32(0x100); put32(0); put32(0);
+	op(1, C24); put32(0); put32(0x100); put32(0);
+	op(1, C24); put32(1); put32(1); put32(0x100);
+	op(1, C24); put32(1); put32(1); put32(0x80000000);
+	op(2, C24); put32(0x100); put32(1);
+	op(2, C24); put32(1); put32(0x100);
+	op(3, C24); put32(0x100); put32(0);
+	op(3, C24); put32(0); put32(0x10000);
+	op(3, C24); put32(0); put32((uint32_t)-0x10000);
+	op(4, C24); put32(0x10000);
+	op(4, C24); put32((uint32_t)-0x10000);
+	op(4, C24); put32(0x80000000);
+	op(5, C24); put32(0x100); put16(1);
+	op(6, C24); put32(0x100); put32(0); put32(1);
+	op(6, C24); put32(0); put32(0x100); put32(1);
+	op(6, C24); put32(0); put32(0); put32(0x100);
+	op(7, C24); put32(0x100); put32(0);
+	op(7, C24); put32(0); put32(0x100);
+	op(8, C24); put32(0x100);
+	op(9, C24); put32(0x100); put("abcdefgh", 8);
+	op(14, NONE); put32(0x100); put16(0);
+	op(14, NONE); put32(0x10001); put16(0);
+	op(14, NONE); put32(0x80000000); put16(0);
+	emit("codec", "wide-arguments");
+
 	/* the mutants' seeds */
-	op(0, C24); put8(24); put16(0);
+	op(0, C24); put32(24); put32(0);
 	emit("codec", "fader-past-last-strip");
-	op(0, C24); put8(0); put16(DIGINET_FADER_MAX);
+	op(0, C24); put32(256); put32(0);
+	emit("codec", "fader-strip-256");
+	op(0, C24); put32(0); put32(DIGINET_FADER_MAX);
 	emit("codec", "fader-full");
 	op(11, C24); put8(0x01); put8(DIGINET_FN_SYSTEM); put8(2); put("\x00\x00", 2);
 	op(11, C24); put8(0x80); put8(DIGINET_FN_SYSTEM); put8(0);
@@ -374,11 +420,11 @@ static void codec_seeds(void)
 		op(13, C24); put16(strlen(COUNTER[i])); put(COUNTER[i], strlen(COUNTER[i]));
 	}
 	emit("codec", "counter-text");
-	op(14, NONE); put8(0); put16(0);
-	op(14, NONE); put8(10); put16(0x3ff);
-	op(14, NONE); put8(14); put16(0x3fff);
-	op(14, NONE); put8(15); put16(0x7fff);
-	op(14, NONE); put8(200); put16(0x0005);
+	op(14, NONE); put32(0); put16(0);
+	op(14, NONE); put32(10); put16(0x3ff);
+	op(14, NONE); put32(14); put16(0x3fff);
+	op(14, NONE); put32(15); put16(0x7fff);
+	op(14, NONE); put32(200); put16(0x0005);
 	emit("codec", "masks");
 }
 

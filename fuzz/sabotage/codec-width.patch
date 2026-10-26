@@ -1,0 +1,16 @@
+Breaks the check of fuzz/fuzz_codec.c:313 (the fader cuts its strip to a byte before the range check, so strip 256 moves fader 0).
+Caught by the seed input "fader-strip-256" of fuzz_codec.
+
+diff --git a/src/diginet_codec.c b/src/diginet_codec.c
+index 89a2aed..e83c2c5 100644
+--- a/src/diginet_codec.c
++++ b/src/diginet_codec.c
+@@ -97,7 +97,7 @@ int diginet_fader_encode(const struct diginet_personality *p, unsigned strip, un
+ {
+ 	if (!p || !out)
+ 		return DIGINET_E_ARG;
+-	if (strip >= p->strips || value > DIGINET_FADER_MAX)
++	if ((uint8_t)strip >= p->strips || value > DIGINET_FADER_MAX)
+ 		return DIGINET_E_RANGE;
+ 	out->bytes[0] = 0xb0;
+ 	out->bytes[1] = (uint8_t)strip;

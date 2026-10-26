@@ -7,23 +7,29 @@
  *
  * Input: up to OPS_MAX operations, each [op] and its arguments. op % 15 is the call, and
  * op / 15 % 3 the personality it is given: none (NULL), Control|24, ProControl.
- *    0 strip u16 value          diginet_fader_encode
- *    1 button id on             diginet_button_encode
- *    2 strip on                 diginet_touch_encode
- *    3 strip u16 delta          diginet_vpot_encode (delta as int16)
- *    4 u16 delta                diginet_jog_encode (delta as int16)
- *    5 strip u16 mask           diginet_ring_encode
- *    6 channel right segments   diginet_meter_encode
- *    7 strip bits               diginet_strip_leds_encode
- *    8 bits                     diginet_counter_leds_encode
- *    9 addr c1..c8              diginet_scribble_encode
- *   10 dots s1..s8              diginet_counter_encode (s1 the leftmost digit)
- *   11 device fn n p1..pn       diginet_sysex_encode (n % 25 payload bytes)
- *   12 addr u16-len text        diginet_scribble_text, then diginet_scribble_encode
- *   13 u16-len text             diginet_seg7, diginet_counter_text, then diginet_counter_encode
- *   14 n u16 mask               diginet_meter_mask, diginet_meter_segments, ring_dot and _fill
- * Every byte argument is a u8; text is cut at its first NUL and at 64 bytes. The text
- * operations use Control|24 when the personality is none.
+ *    0 u32 strip, u32 value               diginet_fader_encode
+ *    1 u32 button, u32 id, u32 on         diginet_button_encode
+ *    2 u32 strip, u32 on                  diginet_touch_encode
+ *    3 u32 strip, u32 delta               diginet_vpot_encode
+ *    4 u32 delta                          diginet_jog_encode
+ *    5 u32 strip, u16 mask                diginet_ring_encode
+ *    6 u32 channel, u32 right, u32 segs   diginet_meter_encode
+ *    7 u32 strip, u32 bits                diginet_strip_leds_encode
+ *    8 u32 bits                           diginet_counter_leds_encode
+ *    9 u32 addr, c1..c8                   diginet_scribble_encode
+ *   10 dots s1..s8                        diginet_counter_encode (s1 the leftmost digit)
+ *   11 device fn n p1..pn                 diginet_sysex_encode (n % 25 payload bytes)
+ *   12 addr u16-len text                  diginet_scribble_text, then diginet_scribble_encode
+ *   13 u16-len text                       diginet_seg7, diginet_counter_text, then
+ *                                         diginet_counter_encode
+ *   14 u32 n, u16 mask                    diginet_meter_mask, diginet_meter_segments,
+ *                                         ring_dot and _fill
+ * Each argument is read at the width of its type in diginet_codec.h: an `unsigned` or an `int`
+ * as a u32 (an `int` its two's complement), a uint16_t as a u16, every other byte a u8, so an
+ * encoder that cuts an argument short before it checks the range shows. The scribble address
+ * of op 12 is a u8 & 7f, a valid address, since that op checks the text and not the range;
+ * text is cut at its first NUL and at 64 bytes. The text operations use Control|24 when the
+ * personality is none.
  *
  * The harness works out what each call owes from docs/protocol.md (the bytes of each
  * control) and from the comments of diginet_codec.h (the range each encoder takes), with the
@@ -297,6 +303,8 @@ FUZZ_CHECK check_range(const struct call *k)
 	 * contract: diginet_codec.h:71-170
 	 * mutant: src/diginet_codec.c:100 `strip >= p->strips` -> `strip > p->strips`
 	 * input: fader-past-last-strip
+	 * mutant: src/diginet_codec.c:100 `strip >= p->strips` -> `(uint8_t)strip >= p->strips`
+	 * input: fader-strip-256
 	 * mutant: src/diginet_codec.c:138 `delta > 63` -> `delta > 64`
 	 * input: out-of-range
 	 * mutant: src/diginet_codec.c:184 `mask >> DIGINET_RING_LEDS` -> `mask >> 16`
@@ -569,32 +577,34 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 		memcpy(&k.out, &k.before, sizeof k.out);   /* padding too: it is compared */
 		switch (k.kind) {
 		case FADER:
+			k.a = fuzz_u32(&in), k.b = fuzz_u32(&in);
+			break;
 		case RING:
-			k.a = fuzz_u8(&in), k.b = fuzz_u16(&in);
+			k.a = fuzz_u32(&in), k.b = fuzz_u16(&in);
 			break;
 		case BUTTON:
-			k.a = fuzz_u8(&in), k.b = fuzz_u8(&in), k.c = fuzz_u8(&in) & 1;
+			k.a = fuzz_u32(&in), k.b = fuzz_u32(&in), k.c = fuzz_u32(&in);
 			break;
 		case TOUCH:
-			k.a = fuzz_u8(&in), k.c = fuzz_u8(&in) & 1;
+			k.a = fuzz_u32(&in), k.c = fuzz_u32(&in);
 			break;
 		case VPOT:
-			k.a = fuzz_u8(&in), k.delta = (int16_t)fuzz_u16(&in);
+			k.a = fuzz_u32(&in), k.delta = (int32_t)fuzz_u32(&in);
 			break;
 		case JOG:
-			k.delta = (int16_t)fuzz_u16(&in);
+			k.delta = (int32_t)fuzz_u32(&in);
 			break;
 		case METER:
-			k.a = fuzz_u8(&in), k.c = fuzz_u8(&in) & 1, k.b = fuzz_u8(&in);
+			k.a = fuzz_u32(&in), k.c = fuzz_u32(&in), k.b = fuzz_u32(&in);
 			break;
 		case STRIP_LEDS:
-			k.a = fuzz_u8(&in), k.b = fuzz_u8(&in);
+			k.a = fuzz_u32(&in), k.b = fuzz_u32(&in);
 			break;
 		case COUNTER_LEDS:
-			k.b = fuzz_u8(&in);
+			k.b = fuzz_u32(&in);
 			break;
 		case SCRIBBLE:
-			k.a = fuzz_u8(&in);
+			k.a = fuzz_u32(&in);
 			for (int i = 0; i < SPEC_CHARS_MAX; i++)
 				k.bytes[i] = fuzz_u8(&in);
 			break;
@@ -637,7 +647,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 			break;
 		}
 		default: {
-			unsigned n = fuzz_u8(&in);
+			unsigned n = fuzz_u32(&in);
 			check_text_masks(n, fuzz_u16(&in));
 			continue;
 		}

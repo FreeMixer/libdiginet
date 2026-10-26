@@ -1,4 +1,4 @@
-Breaks the check of fuzz/fuzz_codec.c:321 (the fader LSB is shifted by 3, not 4).
+Breaks the check of fuzz/fuzz_codec.c:329 (the fader LSB is shifted by 3, not 4).
 Caught by the seed input "fader-full" of fuzz_codec.
 
 diff --git a/src/diginet_codec.c b/src/diginet_codec.c
