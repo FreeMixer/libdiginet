@@ -95,4 +95,14 @@ static inline uint8_t *fuzz_dup(const uint8_t *p, size_t n)
 	return b;
 }
 
+/* Whether each of the `n` bytes at `p` is still `fill`: a buffer the library must not write
+ * past, filled before the call and read after it. */
+static inline int fuzz_all(const uint8_t *p, size_t n, uint8_t fill)
+{
+	for (size_t i = 0; i < n; i++)
+		if (p[i] != fill)
+			return 0;
+	return 1;
+}
+
 #endif /* DIGINET_FUZZ_H */

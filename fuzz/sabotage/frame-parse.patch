@@ -1,4 +1,4 @@
-Breaks the check of fuzz/fuzz_frame.c:46 (the EtherType refusal tests for 0, not for 0x885F).
+Breaks the check of fuzz/fuzz_frame.c:47 (the EtherType refusal tests for 0, not for 0x885F).
 Caught by the seed input "wrong-ethertype" of fuzz_frame.
 
 diff --git a/src/diginet_frame.c b/src/diginet_frame.c

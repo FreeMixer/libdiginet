@@ -21,7 +21,8 @@
  *   - round-trip: diginet_frame_build() makes, from the fields the grammar reads, the frame
  *     diginet.h promises: the MACs, 0x885F, numbytes, the body's sum (or zero in the zero-sum
  *     mode), the counters, retry, command and count, the body, zeros up to 60 bytes. It
- *     refuses a body past 1484 bytes, one holding F0 13 xx 70, and a buffer one byte short.
+ *     refuses a body past 1484 bytes, one holding F0 13 xx 70, and a buffer one byte short,
+ *     and writes nothing into that buffer.
  *   - announce: diginet_announce_parse() reads only an e0 or e1 of at least 33 body bytes;
  *     `unknown` is the first 15 body bytes, the version the bytes at 15 and the name the
  *     bytes at 24, each up to its first NUL and at most 9, always terminated.
@@ -169,13 +170,25 @@ FUZZ_CHECK check_round_trip(const struct spec_frame *w)
 		 * input: keepalive */
 		if (n != (int)n_want || memcmp(out, want, n_want))
 			abort();
-		/* A buffer one byte short of the frame is no room, and nothing is built.
+		/* an allocation of exactly one byte short of the frame, so a write past it is a
+		 * sanitizer report, filled with a known byte, so a write into it shows */
+		uint8_t *shy = fuzz_alloc(n_want - 1);
+		memset(shy, 0x5a, n_want - 1);
+		n = diginet_frame_build(shy, n_want - 1, w->dst, w->src, &h, w->body, w->body_len,
+					DIGINET_SUM_BODY);
+		/* A buffer one byte short of the frame is no room.
 		 * contract: diginet.h:112-113, DIGINET_E_SPACE when cap is too small
 		 * mutant: src/diginet_frame.c:108 `cap < out` -> `cap + 1 < out`
 		 * input: keepalive */
-		if (diginet_frame_build(out, n_want - 1, w->dst, w->src, &h, w->body, w->body_len,
-					DIGINET_SUM_BODY) != SPEC_E_SPACE)
+		if (n != SPEC_E_SPACE)
 			abort();
+		/* No room means nothing is built: each byte of the buffer is as it was.
+		 * contract: diginet.h:112-113, DIGINET_E_SPACE when cap is too small
+		 * mutant: src/diginet_frame.c:108 `cap < out` -> `memset(buf, 0, out), cap < out`
+		 * input: keepalive */
+		if (!fuzz_all(shy, n_want - 1, 0x5a))
+			abort();
+		free(shy);
 	}
 	free(want);
 	free(out);
