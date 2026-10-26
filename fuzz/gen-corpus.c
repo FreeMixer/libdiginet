@@ -543,6 +543,14 @@ static void transport_seeds(void)
 	t_time(DECI, 5);
 	emit("transport", "wake-fails-in-flight");
 
+	/* a frame of commands that goes, then no ACK for ack_timeout: the same frame again */
+	config(F_AUTO, 3, 10, 60000, 0, 60000, 3000, 0, 48, 314);
+	online();
+	t_tagged(DIGINET_KEY_FADER, 1, 0, 5, "\x10\x20");
+	t_time(MSEC, 1);
+	t_time(MSEC, 10);
+	emit("transport", "retransmit-data");
+
 	/* keepalives on their own clock, a desk retry holding them back, then silence */
 	config(F_AUTO, 1, 1, 10, 30, 1000, 3000, 0, 48, 314);
 	online();

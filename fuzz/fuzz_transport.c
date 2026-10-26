@@ -93,6 +93,9 @@
 #define TAG         0xa0
 #define CMDS_MAX    OPS_MAX
 #define TRANS_MAX   16
+/* The retry field of a frame: Ethernet header, then numbytes u2, sum u2, send u4, ack u4.
+ * contract: protocol/diginet.ksy `header` `retry` (u2); docs/protocol.md:41 */
+#define RETRY_AT    (SPEC_ETH_HDR + 12)
 
 /* The states, the reasons and the notices. contract: diginet_session.h:39-57, :78-85 */
 enum { S_IDLE = 0, S_WAKING, S_ONLINE, S_CLOSED };
@@ -139,7 +142,7 @@ static struct {
 		uint8_t cmd;
 		uint32_t counter, retries;
 		uint64_t sent;
-		uint8_t body[SPEC_MAX_BODY];
+		uint8_t frame[SPEC_MAX_FRAME];   /* the whole frame as it first went */
 		size_t len;
 	} fly;
 } M;
@@ -435,14 +438,17 @@ FUZZ_CHECK check_inflight_new(void)
 		abort();
 }
 
-FUZZ_CHECK check_inflight_retry(const struct spec_frame *f)
+FUZZ_CHECK check_inflight_retry(const uint8_t *frame, size_t len, const struct spec_frame *f)
 {
-	/* A retransmission is the frame in flight again.
-	 * contract: diginet_session.h:14-15
+	/* A retransmission is the frame in flight again: each byte of the frame that first went,
+	 * but the two of its retry field.
+	 * contract: diginet_session.h:14-15; protocol/diginet.ksy `header` `retry`
 	 * mutant: transport/src/diginet_session.c:136 `0, e2,` -> `0, s->inflight_frame,`
-	 * input: wake-fails-in-flight */
-	if (!M.fly.on || f->cmd != M.fly.cmd || f->send != M.fly.counter || f->body_len != M.fly.len ||
-	    memcmp(f->body, M.fly.body, f->body_len))
+	 * input: wake-fails-in-flight
+	 * mutant: transport/src/diginet_session.c:407 `DIGINET_ETH_HDR_LEN + 12` -> `DIGINET_ETH_HDR_LEN + 15`
+	 * input: retransmit-data */
+	if (!M.fly.on || len != M.fly.len || len < RETRY_AT + 2 || memcmp(frame, M.fly.frame, RETRY_AT) ||
+	    memcmp(frame + RETRY_AT + 2, M.fly.frame + RETRY_AT + 2, len - RETRY_AT - 2))
 		abort();
 	/* Its retry field counts the retransmissions, 1, 2, ..., never past max_retries.
 	 * contract: diginet_session.h:14-15; docs/protocol.md:41
@@ -804,7 +810,7 @@ static int io_send(void *ctx, const uint8_t *frame, size_t len)
 	case SPEC_CMD_E2:
 	case SPEC_CMD_DATA:
 		if (f.retry) {
-			check_inflight_retry(&f);
+			check_inflight_retry(frame, len, &f);
 			M.fly.retries++;
 			M.fly.sent = g_now;
 			break;
@@ -851,8 +857,8 @@ static int io_send(void *ctx, const uint8_t *frame, size_t len)
 		M.fly.counter = f.send;
 		M.fly.retries = 0;
 		M.fly.sent = g_now;
-		M.fly.len = f.body_len;
-		memcpy(M.fly.body, f.body, f.body_len);
+		M.fly.len = len < sizeof M.fly.frame ? len : sizeof M.fly.frame;
+		memcpy(M.fly.frame, frame, M.fly.len);
 		break;
 	case SPEC_CMD_E3:
 		GOT.e3++;
