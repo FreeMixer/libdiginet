@@ -1,4 +1,4 @@
-Breaks the check of fuzz/fuzz_decode.c:273 (the scan for a cut-short system message misses one that ends the body).
+Breaks the check of fuzz/fuzz_decode.c:275 (the scan for a cut-short system message misses one that ends the body).
 Caught by the seed input "system-cut-short" of fuzz_decode.
 
 diff --git a/src/diginet_codec.c b/src/diginet_codec.c

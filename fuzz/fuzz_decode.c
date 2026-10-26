@@ -165,9 +165,11 @@ FUZZ_CHECK check_events_step(const uint8_t *b, const struct owed *o, int rd, con
 	/* The event carries the message it came from.
 	 * contract: diginet_codec.h:205
 	 * mutant: src/diginet_decode.c:116 `ev->msg = m;` -> `ev->msg.offset = m.offset;`
-	 * input: button_mute */
+	 * input: button_mute
+	 * mutant: src/diginet_decode.c:116 `ev->msg = m;` -> `ev->msg = m, ev->msg.running = 0;`
+	 * input: running_status */
 	if (ev->msg.offset != m->at || ev->msg.len != m->len || ev->msg.status != m->status ||
-	    ev->msg.d1 != m->d1 || ev->msg.d2 != m->d2 ||
+	    ev->msg.running != m->running || ev->msg.d1 != m->d1 || ev->msg.d2 != m->d2 ||
 	    (m->status == 0xf0 && (ev->msg.sysex != b + m->sysex_at || ev->msg.sysex_len != m->sysex_len)))
 		abort();
 	/* The event is the control docs/protocol.md makes of the message.
