@@ -436,6 +436,12 @@ FUZZ_CHECK check_inflight_new(void)
 	 * input: batches */
 	if (M.state != S_ONLINE || M.fly.on)
 		abort();
+	/* A data frame never goes while a back-off after a desk retry holds.
+	 * contract: diginet_session.h:16-17
+	 * mutant: transport/src/diginet_session.c:445 `now < s->backoff_until_us` -> `(now < s->backoff_until_us && now >= s->next_keepalive_us)`
+	 * input: backoff-exact */
+	if (g_now < M.backoff_until)
+		abort();
 }
 
 FUZZ_CHECK check_inflight_retry(const uint8_t *frame, size_t len, const struct spec_frame *f)
