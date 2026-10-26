@@ -420,11 +420,12 @@ static int owed_counter_text(const char *t, uint8_t seg[SPEC_DIGITS], uint8_t *d
 	return SPEC_OK;
 }
 
-FUZZ_CHECK check_text_scribble(const char *text, uint8_t *chars, size_t n)
+FUZZ_CHECK check_text_scribble(const char *text, uint8_t *chars, size_t cap, size_t n)
 {
 	uint8_t want[SPEC_CHARS_MAX];
 	size_t used_want = owed_scribble_text(text, want, n);
-	memset(chars, 0xa5, SPEC_CHARS_MAX);
+	/* the whole buffer the call gets, so a write from n on shows */
+	memset(chars, 0xa5, cap);
 	size_t used = diginet_scribble_text(text, chars, n);
 	/* The scribble text is the characters diginet_codec.h:137-140 gives, and the bytes used.
 	 * contract: diginet_codec.h:137-140; docs/protocol.md:118-119
@@ -433,6 +434,12 @@ FUZZ_CHECK check_text_scribble(const char *text, uint8_t *chars, size_t n)
 	 * mutant: src/diginet_codec.c:279 `c < 0x80 ? c : '?'` -> `c`
 	 * input: scribble-text */
 	if (used != used_want || memcmp(chars, want, n))
+		abort();
+	/* The text is cut at n: no byte from n on is written.
+	 * contract: diginet_codec.h:137
+	 * mutant: src/diginet_codec.c:282 `o < n` -> `o <= n`
+	 * input: scribble-text */
+	if (!fuzz_all(chars + n, cap - n, 0xa5))
 		abort();
 }
 
@@ -602,7 +609,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 			}
 			k.a = fuzz_u8(&in) & 0x7f;
 			text_arg(&in, text);
-			check_text_scribble(text, k.bytes, k.desk->chars);
+			check_text_scribble(text, k.bytes, sizeof k.bytes, k.desk->chars);
 			k.kind = SCRIBBLE;
 			break;
 		case COUNTER_TEXT: {
