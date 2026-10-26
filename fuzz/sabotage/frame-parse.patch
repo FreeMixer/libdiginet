@@ -1,0 +1,16 @@
+Breaks the check of fuzz/fuzz_frame.c:47 (the EtherType refusal tests for 0, not for 0x885F).
+Caught by the seed input "wrong-ethertype" of fuzz_frame.
+
+diff --git a/src/diginet_frame.c b/src/diginet_frame.c
+index 5a8a8ea..ed842f1 100644
+--- a/src/diginet_frame.c
++++ b/src/diginet_frame.c
+@@ -64,7 +64,7 @@ int diginet_frame_parse(const uint8_t *buf, size_t len, struct diginet_frame *f)
+ 	if (len < DIGINET_BODY_OFFSET)
+ 		return DIGINET_E_SHORT;
+ 	uint16_t et = rd16(buf + 12);
+-	if (et != DIGINET_ETHERTYPE)
++	if (et == 0)
+ 		return DIGINET_E_ETHERTYPE;
+ 
+ 	const uint8_t *h = buf + DIGINET_ETH_HDR_LEN;

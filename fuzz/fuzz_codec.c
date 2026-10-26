@@ -2,56 +2,55 @@
 // Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 
 /* libFuzzer harness: THE CONTROLS (src/diginet_codec.c), every encoder diginet_codec.h
- * declares, the text helpers of the scribble strip and the counter, and the decoder of
- * src/diginet_decode.c reading back what each encoder made.
+ * declares, the personalities, the text helpers of the scribble strip and the counter, and
+ * the meter and ring helpers.
  *
  * Input: up to OPS_MAX operations, each [op] and its arguments. op % 15 is the call, and
  * op / 15 % 3 the personality it is given: none (NULL), Control|24, ProControl.
- *    0 strip u16 value          diginet_fader_encode
- *    1 button id on             diginet_button_encode
- *    2 strip on                 diginet_touch_encode
- *    3 strip u16 delta          diginet_vpot_encode (delta as int16)
- *    4 u16 delta                diginet_jog_encode (delta as int16)
- *    5 strip u16 mask           diginet_ring_encode
- *    6 channel right segments   diginet_meter_encode
- *    7 strip bits               diginet_strip_leds_encode
- *    8 bits                     diginet_counter_leds_encode
- *    9 addr c1..c8              diginet_scribble_encode
- *   10 dots s1..s8              diginet_counter_encode (s1 the leftmost digit)
- *   11 device fn n p1..pn       diginet_sysex_encode (n % 25 payload bytes)
- *   12 addr u16-len text        diginet_scribble_text, then diginet_scribble_encode
- *   13 u16-len text             diginet_counter_text, then diginet_counter_encode
- *   14 n u16 mask               diginet_meter_mask, diginet_meter_segments, ring_dot/fill
- * Every byte argument is a u8; text is cut at its first NUL and at 64 bytes. The text
- * operations use Control|24 when the personality is none.
+ *    0 u32 strip, u32 value               diginet_fader_encode
+ *    1 u32 button, u32 id, u32 on         diginet_button_encode
+ *    2 u32 strip, u32 on                  diginet_touch_encode
+ *    3 u32 strip, u32 delta               diginet_vpot_encode
+ *    4 u32 delta                          diginet_jog_encode
+ *    5 u32 strip, u16 mask                diginet_ring_encode
+ *    6 u32 channel, u32 right, u32 segs   diginet_meter_encode
+ *    7 u32 strip, u32 bits                diginet_strip_leds_encode
+ *    8 u32 bits                           diginet_counter_leds_encode
+ *    9 u32 addr, c1..c8                   diginet_scribble_encode
+ *   10 dots s1..s8                        diginet_counter_encode (s1 the leftmost digit)
+ *   11 device fn n p1..pn                 diginet_sysex_encode (n % 25 payload bytes)
+ *   12 addr u16-len text                  diginet_scribble_text, then diginet_scribble_encode
+ *   13 u16-len text                       diginet_seg7, diginet_counter_text, then
+ *                                         diginet_counter_encode
+ *   14 u32 n, u16 mask                    diginet_meter_mask, diginet_meter_segments,
+ *                                         ring_dot and _fill
+ * Each argument is read at the width of its type in diginet_codec.h: an `unsigned` or an `int`
+ * as a u32 (an `int` its two's complement), a uint16_t as a u16, every other byte a u8, so an
+ * encoder that cuts an argument short before it checks the range shows. The scribble address
+ * of op 12 is a u8 & 7f, a valid address, since that op checks the text and not the range;
+ * text is cut at its first NUL and at 64 bytes. The text operations use Control|24 when the
+ * personality is none.
  *
- * Properties, each an abort(), checked in this order after each encoder call:
- *   - refusal: the system family is never encoded: diginet_sysex_encode() never makes
- *     function 0x70 and leaves the command untouched, refusing it with DIGINET_E_REFUSED
- *     whenever the device byte is one the wire carries (a device past 0x7f is DIGINET_E_ARG
- *     first), and every command an encoder makes passes diginet_body_check().
- *     Mutant: fuzz/mutants/codec-refusal.patch, only an empty 0x70 message is refused; seed
- *     sysex-system.
- *   - range: an encoder succeeds exactly for the values its comment in diginet_codec.h
- *     accepts (a strip below the personality's strips, a 10-bit fader, a 7-bit button and a
- *     6-bit id, a delta in -64..63, 15 ring LEDs, a channel below 0x20 and 14 segments, 7-bit
- *     LED bits, scribble characters and counter patterns), DIGINET_E_ARG for a missing
- *     personality, and on every failure leaves the command as it was.
- *     Mutant: fuzz/mutants/codec-range.patch, the fader takes the strip one past the last;
- *     seed fader-past-last-strip.
- *   - round-trip: what an encoder makes, the decoder reads back as exactly one event of its
- *     kind with the values encoded, using every byte; the command's key names its address
- *     (diginet_codec.h, enum diginet_key_kind) and only scribble and counter writes are paced
- *     as display writes.
- *     Mutant: fuzz/mutants/codec-round-trip.patch, the fader LSB shifted by 3 instead of 4;
- *     seed fader-full.
- *   - text: what the text helpers accept, the encoders take: diginet_scribble_text() writes
- *     n 7-bit bytes and reports at most the text's length as used, and those bytes encode;
- *     digits and dots diginet_counter_text() accepts encode; diginet_meter_segments() counts
- *     exactly the thermometers diginet_meter_mask() makes and refuses every other mask; and
- *     the ring helpers light the LEDs they name.
- *     Mutant: fuzz/mutants/codec-text.patch, the counter text accepts a dot on the rightmost
- *     digit, which has no bit; seed counter-text-last-dot.
+ * The harness works out what each call owes from docs/protocol.md (the bytes of each
+ * control) and from the comments of diginet_codec.h (the range each encoder takes), with the
+ * two desks of fuzz/spec.h, and holds the library to that. No expected value comes from the
+ * library.
+ *
+ * Properties, each an abort() in a check_ function:
+ *   - personality: each desk is the one docs/protocol.md describes, found by its announce
+ *     name, and no other name or desk is one.
+ *   - refusal: the system family, function 0x70, is never encoded.
+ *   - range: an encoder succeeds exactly for the arguments its comment in diginet_codec.h
+ *     takes, fails with the code it gives otherwise, and leaves the command untouched when it
+ *     fails.
+ *   - bytes: what an encoder makes is the message docs/protocol.md gives for the control, byte
+ *     for byte, its key names the address it writes, and only scribble and counter writes are
+ *     display writes.
+ *   - text: diginet_scribble_text() writes the characters diginet_codec.h:137-140 gives and
+ *     reports the bytes it used; diginet_seg7() draws each character with the segments a
+ *     seven-segment display lights for it; diginet_counter_text() places digits and dots as
+ *     diginet_codec.h:152-158 says; the meter mask and segment count, and the ring dot and
+ *     fill, light what they name.
  */
 #include <diginet/diginet.h>
 #include <diginet/diginet_codec.h>
@@ -61,16 +60,33 @@
 #define OPS_MAX  256
 #define TEXT_MAX 64
 
-/* one encoder call: what it was given and what it returned */
+/* The ranges each encoder takes. contract: include/diginet/diginet_codec.h:74-170 */
+#define DATA_MAX   0x7f   /* a MIDI data byte: :117, :136, :160-161 */
+#define ID_MAX     0x3f   /* bit 6 of 90 bb (40 | id) is the press: :79 */
+#define DELTA_MIN  (-64)  /* dd = delta + 64 is a data byte: :97 */
+#define DELTA_MAX  63
+#define METER_CH   0x20   /* bit 5 of the channel byte is the side: :112 */
+
+enum { FADER, BUTTON, TOUCH, VPOT, JOG, RING, METER, STRIP_LEDS, COUNTER_LEDS, SCRIBBLE, COUNTER,
+       SYSEX, SCRIBBLE_TEXT, COUNTER_TEXT, MASKS };
+
+/* one encoder call: what it was given, what it returned, and what it owed */
 struct call {
 	int kind;
 	const struct diginet_personality *p;
+	const struct spec_desk *desk;   /* the desk p should be, or NULL */
 	unsigned a, b, c;     /* strip/button/channel/addr, value/id/mask/bits, on/right */
 	int delta;
-	uint8_t bytes[DIGINET_CMD_MAX_LEN];  /* scribble chars, counter digits, sysex payload */
+	uint8_t bytes[SPEC_CMD_MAX];    /* scribble chars, counter digits, sysex payload */
 	size_t n;
 	int rc;
 	struct diginet_cmd before, out;
+	/* owed */
+	int want_rc;
+	uint8_t want[SPEC_CMD_MAX];
+	size_t want_len;
+	uint32_t want_key;
+	int want_display;
 };
 
 static int seven_bit(const uint8_t *p, size_t n)
@@ -81,193 +97,428 @@ static int seven_bit(const uint8_t *p, size_t n)
 	return 1;
 }
 
-FUZZ_CHECK check_refusal(const struct call *k)
+/* F0 13 dd fn payload F7: docs/protocol.md:94-146, protocol/diginet.ksy `sysex` */
+static void owe_sysex(struct call *k, uint8_t device, uint8_t fn, const uint8_t *pl, size_t n)
 {
-	if (k->kind == 11 && k->b == DIGINET_FN_SYSTEM) {
-		/* function 0x70 writes the desk's memory: never made, and nothing written; with a
-		 * device byte the wire can carry, refused as such */
-		if (k->rc == DIGINET_OK || memcmp(&k->out, &k->before, sizeof k->out) ||
-		    (k->a <= 0x7f && k->rc != DIGINET_E_REFUSED))
-			abort();
+	k->want[0] = 0xf0;
+	k->want[1] = SPEC_MAKER;
+	k->want[2] = device;
+	k->want[3] = fn;
+	memcpy(k->want + 4, pl, n);
+	k->want[4 + n] = 0xf7;
+	k->want_len = n + 5;
+	k->want_display = fn == SPEC_FN_SCRIBBLE || fn == SPEC_FN_COUNTER;
+}
+
+static void owe3(struct call *k, uint8_t a, uint8_t b, uint8_t c, uint32_t key)
+{
+	k->want[0] = a;
+	k->want[1] = b;
+	k->want[2] = c;
+	k->want_len = 3;
+	k->want_key = key;
+}
+
+/* What the call owes: the code, and for a success the bytes, the key and the display flag. */
+static void owe(struct call *k)
+{
+	const struct spec_desk *d = k->desk;
+	int needs_desk = k->kind != BUTTON && k->kind != JOG && k->kind != SYSEX;
+
+	k->want_rc = SPEC_OK;
+	k->want_len = 0;
+	k->want_key = 0;
+	k->want_display = 0;
+	if (needs_desk && !d) {
+		k->want_rc = SPEC_E_ARG;
 		return;
 	}
-	if (k->rc == DIGINET_OK && diginet_body_check(k->out.bytes, k->out.len) != DIGINET_OK)
+	switch (k->kind) {
+	case FADER:
+		/* B0 tt MSB (20+tt) LSB, MSB = v >> 3, LSB = (v & 7) << 4: docs/protocol.md:75 */
+		if (k->a >= d->strips || k->b > SPEC_FADER_MAX)
+			break;
+		k->want[0] = 0xb0;
+		k->want[1] = (uint8_t)k->a;
+		k->want[2] = (uint8_t)(k->b >> 3);
+		k->want[3] = (uint8_t)(0x20 + k->a);
+		k->want[4] = (uint8_t)((k->b & 7) << 4);
+		k->want_len = 5;
+		k->want_key = SPEC_KEY(SPEC_KEY_FADER, k->a);
+		return;
+	case BUTTON:
+		/* 90 bb (40 if on | id): docs/protocol.md:99-100, :111 */
+		if (k->a > DATA_MAX || k->b > ID_MAX)
+			break;
+		owe3(k, 0x90, (uint8_t)k->a, (uint8_t)((k->c ? 0x40 : 0) | k->b),
+		     SPEC_KEY(SPEC_KEY_LED, k->a << 8 | k->b));
+		return;
+	case TOUCH:
+		/* 90 09 (40 if touched | tt): docs/protocol.md:79 */
+		if (k->a >= d->strips)
+			break;
+		owe3(k, 0x90, SPEC_BTN_TOUCH, (uint8_t)((k->c ? 0x40 : 0) | k->a), SPEC_KEY(SPEC_KEY_INPUT, 0));
+		return;
+	case VPOT:
+		/* B0 (40 | tt) dd, dd = delta + 64: docs/protocol.md:87 */
+		if (k->a >= d->strips || k->delta < DELTA_MIN || k->delta > DELTA_MAX)
+			break;
+		owe3(k, 0xb0, (uint8_t)(0x40 | k->a), (uint8_t)(k->delta + 64), SPEC_KEY(SPEC_KEY_INPUT, 0));
+		return;
+	case JOG:
+		/* B0 5C dd: docs/protocol.md:89 */
+		if (k->delta < DELTA_MIN || k->delta > DELTA_MAX)
+			break;
+		owe3(k, 0xb0, SPEC_JOG_CC, (uint8_t)(k->delta + 64), SPEC_KEY(SPEC_KEY_INPUT, 0));
+		return;
+	case RING: {
+		/* (tt | 40 if LED 1) b1 b2, b1 bits 6..0 LEDs 2..8, b2 bits 6..0 LEDs 9..15, LED L
+		 * bit L - 1 of the mask: docs/protocol.md:94, diginet_codec.h:103 */
+		if (k->a >= d->strips || k->b >> SPEC_RING_LEDS)
+			break;
+		uint8_t pl[3] = { (uint8_t)(k->a | (k->b & 1 ? 0x40 : 0)), 0, 0 };
+		for (unsigned led = 2; led <= SPEC_RING_LEDS; led++)
+			if (k->b >> (led - 1) & 1)
+				pl[led <= 8 ? 1 : 2] |= (uint8_t)(1u << (led <= 8 ? 8 - led : 15 - led));
+		owe_sysex(k, d->device, SPEC_FN_RING, pl, 3);
+		k->want_key = SPEC_KEY(SPEC_KEY_RING, k->a);
+		return;
+	}
+	case METER: {
+		/* ch hi lo, ch | 20 for the right side, n segments the n lowest of 14 bits:
+		 * docs/protocol.md:129-130 */
+		if (k->a >= METER_CH || k->b > SPEC_METER_BITS)
+			break;
+		unsigned mask = (1u << k->b) - 1;
+		uint8_t ch = (uint8_t)(k->a | (k->c ? 0x20 : 0));
+		uint8_t pl[3] = { ch, (uint8_t)(mask >> 7), (uint8_t)(mask & 0x7f) };
+		owe_sysex(k, d->device, SPEC_FN_METER, pl, 3);
+		k->want_key = SPEC_KEY(SPEC_KEY_METER, ch);
+		return;
+	}
+	case STRIP_LEDS:
+	case COUNTER_LEDS: {
+		/* tt bits, the counter-mode LEDs at the counter's address: docs/protocol.md:112-113 */
+		unsigned addr = k->kind == STRIP_LEDS ? k->a : d->counter;
+		if ((k->kind == STRIP_LEDS && k->a >= d->strips) || k->b > DATA_MAX)
+			break;
+		uint8_t pl[2] = { (uint8_t)addr, (uint8_t)k->b };
+		owe_sysex(k, d->device, SPEC_FN_LEDS, pl, 2);
+		k->want_key = SPEC_KEY(SPEC_KEY_LEDS, addr);
+		return;
+	}
+	case SCRIBBLE: {
+		/* aa 00 c1..cN, N the desk's characters: docs/protocol.md:118, :123 */
+		if (k->a > DATA_MAX || !seven_bit(k->bytes, d->chars))
+			break;
+		uint8_t pl[2 + SPEC_CHARS_MAX] = { (uint8_t)k->a, 0x00 };
+		memcpy(pl + 2, k->bytes, d->chars);
+		owe_sysex(k, d->device, SPEC_FN_SCRIBBLE, pl, 2u + d->chars);
+		k->want_key = SPEC_KEY(SPEC_KEY_SCRIBBLE, k->a);
+		return;
+	}
+	case COUNTER: {
+		/* aa dots d8..d1, the rightmost digit first: docs/protocol.md:135 */
+		if (k->b > DATA_MAX || !seven_bit(k->bytes, SPEC_DIGITS))
+			break;
+		uint8_t pl[2 + SPEC_DIGITS] = { d->counter, (uint8_t)k->b };
+		for (unsigned i = 0; i < SPEC_DIGITS; i++)
+			pl[2 + i] = k->bytes[SPEC_DIGITS - 1 - i];
+		owe_sysex(k, d->device, SPEC_FN_COUNTER, pl, sizeof pl);
+		k->want_key = SPEC_KEY(SPEC_KEY_COUNTER, d->counter);
+		return;
+	}
+	default:
+		/* SYSEX: diginet_codec.h:160-161, the device and function data bytes, the
+		 * system family refused, a payload of data bytes that fits a command */
+		if (k->a > DATA_MAX) {
+			k->want_rc = SPEC_E_ARG;
+			return;
+		}
+		if (k->b == SPEC_FN_SYSTEM) {
+			k->want_rc = SPEC_E_REFUSED;
+			return;
+		}
+		if (k->b > DATA_MAX)
+			break;
+		if (k->n + 5 > SPEC_CMD_MAX) {
+			k->want_rc = SPEC_E_SPACE;
+			return;
+		}
+		if (!seven_bit(k->bytes, k->n))
+			break;
+		owe_sysex(k, (uint8_t)k->a, (uint8_t)k->b, k->bytes, k->n);
+		return;
+	}
+	k->want_rc = SPEC_E_RANGE;
+}
+
+FUZZ_CHECK check_personality(void)
+{
+	const struct diginet_personality *c24 = diginet_personality_of(DIGINET_DESK_CONTROL24);
+	const struct diginet_personality *pc = diginet_personality_of(DIGINET_DESK_PROCONTROL);
+	/* Each desk is the one docs/protocol.md describes: its announce name, device byte,
+	 * strips, scribble characters and counter address.
+	 * contract: fuzz/spec.h SPEC_C24, SPEC_PC; docs/protocol.md:47, :73, :118, :123, :135-146
+	 * mutant: src/diginet_codec.c:14 `8, 8, 0x09` -> `8, 4, 0x09`
+	 * input: encoders-procontrol */
+	if (!c24 || !pc || strcmp(c24->announce_name, SPEC_C24.name) || c24->device != SPEC_C24.device ||
+	    c24->strips != SPEC_C24.strips || c24->scribble_chars != SPEC_C24.chars ||
+	    c24->counter_addr != SPEC_C24.counter || strcmp(pc->announce_name, SPEC_PC.name) ||
+	    pc->device != SPEC_PC.device || pc->strips != SPEC_PC.strips ||
+	    pc->scribble_chars != SPEC_PC.chars || pc->counter_addr != SPEC_PC.counter ||
+	    diginet_personality_of(DIGINET_DESK_UNKNOWN))
+		abort();
+	/* An announce name selects its desk, and a name no source describes selects none.
+	 * contract: diginet_codec.h:40-41; docs/protocol.md:47
+	 * mutant: src/diginet_codec.c:22 `!strcmp(name` -> `strcmp(name`
+	 * input: encoders-control24 */
+	if (diginet_personality_from_name(SPEC_C24.name) != c24 ||
+	    diginet_personality_from_name(SPEC_PC.name) != pc ||
+	    diginet_personality_from_name("CNTRL|2") || diginet_personality_from_name("MAINUNITS") ||
+	    diginet_personality_from_name(""))
 		abort();
 }
 
-/* whether the arguments are what the encoder's comment accepts */
-static int in_range(const struct call *k)
+FUZZ_CHECK check_refusal(const struct call *k)
 {
-	const struct diginet_personality *p = k->p;
-	switch (k->kind) {
-	case 0: return k->a < p->strips && k->b <= DIGINET_FADER_MAX;
-	case 1: return k->a <= 0x7f && k->b <= 0x3f;
-	case 2: return k->a < p->strips;
-	case 3: return k->a < p->strips && k->delta >= -64 && k->delta <= 63;
-	case 4: return k->delta >= -64 && k->delta <= 63;
-	case 5: return k->a < p->strips && k->b < 1u << DIGINET_RING_LEDS;
-	case 6: return k->a < 0x20 && k->b <= DIGINET_METER_SEGMENTS;
-	case 7: return k->a < p->strips && k->b <= 0x7f;
-	case 8: return k->b <= 0x7f;
-	case 9: return k->a <= 0x7f && seven_bit(k->bytes, p->scribble_chars);
-	case 10: return k->b <= 0x7f && seven_bit(k->bytes, DIGINET_COUNTER_DIGITS);
-	default: /* 11 */
-		return k->a <= 0x7f && k->b <= 0x7f && k->n + 5 <= DIGINET_CMD_MAX_LEN &&
-		       seven_bit(k->bytes, k->n);
-	}
+	/* The system family, function 0x70, is never encoded.
+	 * contract: docs/protocol.md:140-144; diginet_codec.h:160-161
+	 * mutant: src/diginet_codec.c:71 `fn == DIGINET_FN_SYSTEM` -> `fn == 0x71`
+	 * input: sysex-system */
+	if (k->kind == SYSEX && k->b == SPEC_FN_SYSTEM && k->rc == SPEC_OK)
+		abort();
 }
 
 FUZZ_CHECK check_range(const struct call *k)
 {
-	if (k->kind == 11 && k->b == DIGINET_FN_SYSTEM)
-		return;   /* the refusal property's */
-	int needs_p = k->kind != 1 && k->kind != 4 && k->kind != 11;
-	int ok = needs_p && !k->p ? 0 : in_range(k);
-	if (needs_p && !k->p && k->rc != DIGINET_E_ARG)
+	/* A failed call leaves the command as it was.
+	 * contract: diginet_codec.h:71-72
+	 * mutant: src/diginet_codec.c:76 `return DIGINET_E_SPACE;` -> `return out->len = 0, DIGINET_E_SPACE;`
+	 * input: out-of-range */
+	if (k->rc != SPEC_OK && memcmp(&k->out, &k->before, sizeof k->out))
 		abort();
-	/* success exactly in range */
-	if ((k->rc == DIGINET_OK) != ok)
-		abort();
-	/* a failure is a failure code, with the command as it was */
-	if (k->rc != DIGINET_OK &&
-	    ((k->rc != DIGINET_E_RANGE && k->rc != DIGINET_E_ARG && k->rc != DIGINET_E_SPACE) ||
-	     memcmp(&k->out, &k->before, sizeof k->out)))
+	/* An encoder succeeds exactly for the arguments its comment takes, and otherwise fails
+	 * with the code its comment gives.
+	 * contract: diginet_codec.h:71-170
+	 * mutant: src/diginet_codec.c:100 `strip >= p->strips` -> `strip > p->strips`
+	 * input: fader-past-last-strip
+	 * mutant: src/diginet_codec.c:100 `strip >= p->strips` -> `(uint8_t)strip >= p->strips`
+	 * input: fader-strip-256
+	 * mutant: src/diginet_codec.c:138 `delta > 63` -> `delta > 64`
+	 * input: out-of-range
+	 * mutant: src/diginet_codec.c:184 `mask >> DIGINET_RING_LEDS` -> `mask >> 16`
+	 * input: out-of-range */
+	if (k->rc != k->want_rc)
 		abort();
 }
 
-FUZZ_CHECK check_round_trip(const struct call *k)
+FUZZ_CHECK check_bytes(const struct call *k)
 {
-	const struct diginet_personality *p = k->p;
-	const struct diginet_cmd *o = &k->out;
-	struct diginet_decoder d;
-	struct diginet_event ev;
-	uint32_t key;
-	uint8_t kind;
-	int display = 0;
+	/* What the encoder makes is the control's message, byte for byte.
+	 * contract: docs/protocol.md:75-146
+	 * mutant: src/diginet_codec.c:106 `<< 4` -> `<< 3`
+	 * input: fader-full
+	 * mutant: src/diginet_codec.c:193 `0x40 : 0` -> `0x20 : 0`
+	 * input: encoders-control24
+	 * mutant: src/diginet_codec.c:226 `(uint8_t)(m >> 7)` -> `(uint8_t)(m >> 6)`
+	 * input: encoders-control24
+	 * mutant: src/diginet_codec.c:381 `seg[DIGINET_COUNTER_DIGITS - 1 - k]` -> `seg[k]`
+	 * input: encoders-control24 */
+	if (k->out.len != k->want_len || memcmp(k->out.bytes, k->want, k->want_len))
+		abort();
+	/* Its key names the address it writes, by kind.
+	 * contract: diginet_codec.h:48-62
+	 * mutant: src/diginet_codec.c:229 `DIGINET_KEY(DIGINET_KEY_METER, ch)` -> `DIGINET_KEY(DIGINET_KEY_METER, channel)`
+	 * input: encoders-control24
+	 * mutant: include/diginet/diginet_codec.h:61 `<< 16` -> `<< 15`
+	 * input: encoders-control24 */
+	if (k->out.key != k->want_key)
+		abort();
+	/* Only scribble and counter writes are display writes, which a transport paces.
+	 * contract: diginet_codec.h:67; docs/protocol.md:60
+	 * mutant: src/diginet_codec.c:88 `fn == DIGINET_FN_SCRIBBLE || fn == DIGINET_FN_COUNTER` -> `fn == DIGINET_FN_SCRIBBLE`
+	 * input: encoders-control24 */
+	if (k->out.display != k->want_display)
+		abort();
+}
 
-	diginet_decoder_init(&d, p, o->bytes, o->len);
-	/* one event, then the end: every byte used */
-	if (o->len == 0 || o->len > DIGINET_CMD_MAX_LEN || diginet_decoder_next(&d, &ev) != 1)
-		abort();
-	struct diginet_event last;
-	if (diginet_decoder_next(&d, &last) != 0)
-		abort();
-	switch (k->kind) {
-	case 0:
-		kind = DIGINET_EV_FADER, key = DIGINET_KEY(DIGINET_KEY_FADER, k->a);
-		if (ev.strip != k->a || ev.value != k->b || ev.lsb_missing)
-			abort();
-		break;
-	case 1:
-		key = DIGINET_KEY(DIGINET_KEY_LED, k->a << 8 | k->b);
-		if (k->b >= DIGINET_ZONE_FIRST && k->b <= DIGINET_ZONE_LAST)
-			kind = DIGINET_EV_SECTION_BUTTON;
-		else
-			kind = k->a == DIGINET_BTN_TOUCH ? DIGINET_EV_TOUCH : DIGINET_EV_STRIP_BUTTON;
-		if (ev.button != k->a || ev.on != !!k->c ||
-		    (kind == DIGINET_EV_SECTION_BUTTON ? ev.zone : ev.strip) != k->b)
-			abort();
-		break;
-	case 2:
-		kind = DIGINET_EV_TOUCH, key = DIGINET_KEY(DIGINET_KEY_INPUT, 0);
-		if (ev.strip != k->a || ev.on != !!k->c)
-			abort();
-		break;
-	case 3:
-		kind = DIGINET_EV_VPOT, key = DIGINET_KEY(DIGINET_KEY_INPUT, 0);
-		if (ev.strip != k->a || ev.delta != k->delta)
-			abort();
-		break;
-	case 4:
-		kind = DIGINET_EV_JOG, key = DIGINET_KEY(DIGINET_KEY_INPUT, 0);
-		if (ev.delta != k->delta)
-			abort();
-		break;
-	case 5:
-		kind = DIGINET_EV_RING, key = DIGINET_KEY(DIGINET_KEY_RING, k->a);
-		if (ev.strip != k->a || ev.mask != k->b || ev.device != p->device)
-			abort();
-		break;
-	case 6:
-		kind = DIGINET_EV_METER;
-		key = DIGINET_KEY(DIGINET_KEY_METER, k->a | (k->c ? 0x20 : 0));
-		if (ev.strip != k->a || ev.right != !!k->c || ev.mask != diginet_meter_mask(k->b) ||
-		    ev.segments != (int)k->b || ev.device != p->device)
-			abort();
-		break;
-	case 7:
-	case 8: {
-		unsigned addr = k->kind == 7 ? k->a : p->counter_addr;
-		kind = DIGINET_EV_STRIP_LEDS, key = DIGINET_KEY(DIGINET_KEY_LEDS, addr);
-		if (ev.addr != addr || ev.mask != k->b || ev.device != p->device)
-			abort();
-		break;
+/* ---- the text helpers ------------------------------------------------------------------- */
+
+/* The scribble text diginet_codec.h:137-140 gives: ASCII as it is, ".1" to ".9" the dot and
+ * small digit glyph chr(digit) - 26 (docs/protocol.md:119), a byte past ASCII '?', spaces up
+ * to n; and the number of text bytes used. */
+static size_t owed_scribble_text(const char *t, uint8_t *out, size_t n)
+{
+	size_t i = 0, o = 0;
+	while (t[i] && o < n) {
+		if (t[i] == '.' && t[i + 1] >= '1' && t[i + 1] <= '9') {
+			out[o++] = (uint8_t)(t[i + 1] - 26);
+			i += 2;
+		} else {
+			out[o++] = (unsigned char)t[i] < 0x80 ? (uint8_t)t[i] : '?';
+			i++;
+		}
 	}
-	case 9:
-		kind = DIGINET_EV_SCRIBBLE, key = DIGINET_KEY(DIGINET_KEY_SCRIBBLE, k->a), display = 1;
-		if (ev.addr != k->a || ev.len != p->scribble_chars || ev.text[ev.len] != '\0' ||
-		    memcmp(ev.text, k->bytes, ev.len) || ev.device != p->device)
-			abort();
-		break;
-	case 10:
-		kind = DIGINET_EV_COUNTER, key = DIGINET_KEY(DIGINET_KEY_COUNTER, p->counter_addr), display = 1;
-		if (ev.addr != p->counter_addr || ev.dots != k->b ||
-		    memcmp(ev.seg, k->bytes, DIGINET_COUNTER_DIGITS) || ev.device != p->device)
-			abort();
-		break;
-	default: /* 11: the message as given, whatever the decoder makes of its function */
-		kind = (uint8_t)ev.kind, key = 0;
-		display = k->b == DIGINET_FN_SCRIBBLE || k->b == DIGINET_FN_COUNTER;
-		if (ev.msg.status != 0xf0 || ev.msg.sysex != o->bytes + 1 || ev.msg.sysex_len != k->n + 3 ||
-		    o->bytes[2] != k->a || o->bytes[3] != k->b || memcmp(o->bytes + 4, k->bytes, k->n))
-			abort();
-		break;
+	while (o < n)
+		out[o++] = ' ';
+	return i;
+}
+
+/* The segments of each character the counter draws, a..g, bit 6 = a ... bit 0 = g
+ * (docs/protocol.md:136): the drawing of each on a seven-segment display. A letter the display
+ * draws one way is taken in either case; H and h are the one letter drawn both ways
+ * (diginet_codec.h:148-150). */
+static int owed_seg7(int c)
+{
+	static const struct { char c; const char *segs; } GLYPH[] = {
+		{ '0', "abcdef" }, { '1', "bc" }, { '2', "abdeg" }, { '3', "abcdg" }, { '4', "bcfg" },
+		{ '5', "acdfg" }, { '6', "acdefg" }, { '7', "abc" }, { '8', "abcdefg" }, { '9', "abcdfg" },
+		{ 'A', "abcefg" }, { 'b', "cdefg" }, { 'C', "adef" }, { 'd', "bcdeg" }, { 'E', "adefg" },
+		{ 'F', "aefg" }, { 'H', "bcefg" }, { 'h', "cefg" }, { 'J', "bcde" }, { 'L', "def" },
+		{ 'o', "cdeg" }, { 'P', "abefg" }, { 'r', "eg" }, { 'S', "acdfg" }, { 'U', "bcdef" },
+		{ 'Y', "bcdfg" }, { 'Z', "abdeg" }, { '-', "g" }, { ' ', "" },
+	};
+	for (size_t i = 0; i < sizeof GLYPH / sizeof GLYPH[0]; i++) {
+		char g = GLYPH[i].c;
+		int same = c == g;
+		if (!same && g != 'H' && g != 'h' && ((g >= 'A' && g <= 'Z') || (g >= 'a' && g <= 'z')))
+			same = (c | 0x20) == (g | 0x20);
+		if (!same)
+			continue;
+		int v = 0;
+		for (const char *s = GLYPH[i].segs; *s; s++)
+			v |= 1 << (6 - (*s - 'a'));
+		return v;
 	}
-	if (ev.kind != kind || o->key != key || o->display != display)
+	return -1;
+}
+
+/* The counter text diginet_codec.h:152-158 gives: each character drawn on a digit, a '.' after
+ * a character its dot and any other '.' a blank digit with its dot, right-aligned on the 8
+ * digits, dots bit k the digit k from the left; refused for a character the display cannot
+ * draw, more than 8 digits, or a dot on the rightmost digit, which has no bit
+ * (docs/protocol.md:137). */
+static int owed_counter_text(const char *t, uint8_t seg[SPEC_DIGITS], uint8_t *dots)
+{
+	uint8_t s[SPEC_DIGITS];
+	int dot[SPEC_DIGITS] = { 0 };
+	int n = 0;
+	for (; *t; t++) {
+		if (*t == '.' && n > 0 && !dot[n - 1]) {
+			dot[n - 1] = 1;
+			continue;
+		}
+		int v = owed_seg7(*t == '.' ? ' ' : *t);
+		if (v < 0 || n == SPEC_DIGITS)
+			return SPEC_E_RANGE;
+		dot[n] = *t == '.';
+		s[n++] = (uint8_t)v;
+	}
+	*dots = 0;
+	for (int i = 0; i < SPEC_DIGITS; i++) {
+		int from = i - (SPEC_DIGITS - n);
+		seg[i] = from >= 0 ? s[from] : 0;
+		if (from >= 0 && dot[from]) {
+			if (i == SPEC_DIGITS - 1)
+				return SPEC_E_RANGE;
+			*dots |= (uint8_t)(1u << i);
+		}
+	}
+	return SPEC_OK;
+}
+
+FUZZ_CHECK check_text_scribble(const char *text, uint8_t *chars, size_t cap, size_t n)
+{
+	uint8_t want[SPEC_CHARS_MAX];
+	size_t used_want = owed_scribble_text(text, want, n);
+	/* the whole buffer the call gets, so a write from n on shows */
+	memset(chars, 0xa5, cap);
+	size_t used = diginet_scribble_text(text, chars, n);
+	/* The scribble text is the characters diginet_codec.h:137-140 gives, and the bytes used.
+	 * contract: diginet_codec.h:137-140; docs/protocol.md:118-119
+	 * mutant: src/diginet_codec.c:275 `text[i + 1] - 26` -> `text[i + 1] - 25`
+	 * input: scribble-text
+	 * mutant: src/diginet_codec.c:279 `c < 0x80 ? c : '?'` -> `c`
+	 * input: scribble-text */
+	if (used != used_want || memcmp(chars, want, n))
+		abort();
+	/* The text is cut at n: no byte from n on is written.
+	 * contract: diginet_codec.h:137
+	 * mutant: src/diginet_codec.c:282 `o < n` -> `o <= n`
+	 * input: scribble-text */
+	if (!fuzz_all(chars + n, cap - n, 0xa5))
 		abort();
 }
 
-FUZZ_CHECK check_text_scribble(const char *text, const struct diginet_personality *p, unsigned addr)
+FUZZ_CHECK check_text_seg7(void)
 {
-	uint8_t chars[DIGINET_SCRIBBLE_MAX];
-	struct diginet_cmd out;
-
-	memset(chars, 0xff, sizeof chars);
-	size_t used = diginet_scribble_text(text, chars, p->scribble_chars);
-	if (used > strlen(text) || !seven_bit(chars, p->scribble_chars))
-		abort();
-	if (diginet_scribble_encode(p, addr & 0x7f, chars, &out) != DIGINET_OK)
+	int same = 1;
+	for (int c = 0; c < 256; c++)
+		same &= diginet_seg7((char)c) == owed_seg7((char)c);
+	/* Each character is drawn with the segments a seven-segment display lights for it, and a
+	 * character the display cannot draw has no pattern.
+	 * contract: docs/protocol.md:136; diginet_codec.h:148-151
+	 * mutant: src/diginet_codec.c:312 `0x33` -> `0x32`
+	 * input: counter-text */
+	if (!same)
 		abort();
 }
 
-FUZZ_CHECK check_text_counter(const char *text, const struct diginet_personality *p)
+FUZZ_CHECK check_text_counter(const char *text, uint8_t *seg, size_t cap, uint8_t *dots)
 {
-	uint8_t seg[DIGINET_COUNTER_DIGITS], dots = 0;
-	struct diginet_cmd out;
-
-	int r = diginet_counter_text(text, seg, &dots);
-	if (r != DIGINET_OK && r != DIGINET_E_RANGE)
+	uint8_t want_seg[SPEC_DIGITS], want_dots = 0;
+	int want = owed_counter_text(text, want_seg, &want_dots);
+	/* the whole buffer the call gets, so a write past the digits shows */
+	memset(seg, 0xa5, cap);
+	*dots = 0xa5;
+	int r = diginet_counter_text(text, seg, dots);
+	/* The counter text is the digits and dots diginet_codec.h:152-158 gives, or refused.
+	 * contract: diginet_codec.h:152-158; docs/protocol.md:137
+	 * mutant: src/diginet_codec.c:362 `i == DIGINET_COUNTER_DIGITS - 1` -> `i == DIGINET_COUNTER_DIGITS`
+	 * input: counter-text-last-dot
+	 * mutant: src/diginet_codec.c:345 `!dot[n - 1]` -> `1`
+	 * input: counter-text */
+	if (r != want || (r == SPEC_OK && (memcmp(seg, want_seg, SPEC_DIGITS) || *dots != want_dots)))
 		abort();
-	if (r == DIGINET_OK && diginet_counter_encode(p, seg, dots, &out) != DIGINET_OK)
+	/* The digits are seg[8]: no byte past them is written.
+	 * contract: diginet_codec.h:155, seg[DIGINET_COUNTER_DIGITS]
+	 * mutant: src/diginet_codec.c:367 `*dots = d;` -> `*dots = d, seg[DIGINET_COUNTER_DIGITS] = 0;`
+	 * input: counter-text */
+	if (!fuzz_all(seg + SPEC_DIGITS, cap - SPEC_DIGITS, 0xa5))
 		abort();
 }
 
 FUZZ_CHECK check_text_masks(unsigned n, uint16_t mask)
 {
-	unsigned want = n > DIGINET_METER_SEGMENTS ? DIGINET_METER_SEGMENTS : n;
-	if (diginet_meter_segments(diginet_meter_mask(n)) != (int)want)
+	unsigned lit = n > SPEC_METER_BITS ? SPEC_METER_BITS : n;
+	/* The meter mask of n segments is the n lowest bits, at most the 14 a meter has.
+	 * contract: docs/protocol.md:130; diginet_codec.h:112-117
+	 * mutant: src/diginet_codec.c:205 `segments = DIGINET_METER_SEGMENTS;` -> `segments = 13;`
+	 * input: masks */
+	if (diginet_meter_mask(n) != (1u << lit) - 1)
 		abort();
-	/* a thermometer of up to 14 segments is counted, every other mask refused */
-	int thermo = (mask & (mask + 1u)) == 0 && mask < 1u << DIGINET_METER_SEGMENTS;
-	int seg = diginet_meter_segments(mask);
-	if (thermo ? seg < 0 || diginet_meter_mask((unsigned)seg) != mask : seg != -1)
+	/* A mask's segments are its count when it is a thermometer, and -1 when it is not.
+	 * contract: diginet_codec.h:118-120; docs/protocol.md:130
+	 * mutant: src/diginet_codec.c:214 `(mask >> n) ? -1 : n` -> `n`
+	 * input: masks */
+	if (diginet_meter_segments(mask) != spec_segments(mask))
 		abort();
-	uint16_t dot = diginet_ring_dot(n), fill = diginet_ring_fill(n);
-	if (n < DIGINET_RING_LEDS ? dot != 1u << n : dot != 0)
+	/* The ring dot lights LED pos + 1 alone, and nothing past the 15th.
+	 * contract: diginet_codec.h:108-109; docs/protocol.md:92
+	 * mutant: src/diginet_codec.c:171 `pos < DIGINET_RING_LEDS` -> `pos <= DIGINET_RING_LEDS`
+	 * input: masks */
+	if (diginet_ring_dot(n) != (n < SPEC_RING_LEDS ? 1u << n : 0))
 		abort();
-	if (n <= DIGINET_RING_LEDS ? fill != (1u << n) - 1 : fill != 0)
+	/* The ring fill lights the first n LEDs, n up to 15, and nothing past.
+	 * contract: diginet_codec.h:108-110; docs/protocol.md:92
+	 * mutant: src/diginet_codec.c:176 `n <= DIGINET_RING_LEDS` -> `n < DIGINET_RING_LEDS`
+	 * input: masks */
+	if (diginet_ring_fill(n) != (n <= SPEC_RING_LEDS ? (1u << n) - 1 : 0))
 		abort();
 }
+
+/* ---- the calls -------------------------------------------------------------------------- */
 
 static void text_arg(struct fuzz_in *in, char *text)
 {
@@ -277,15 +528,42 @@ static void text_arg(struct fuzz_in *in, char *text)
 	text[n] = '\0';
 }
 
+static void run(struct call *k)
+{
+	switch (k->kind) {
+	case FADER: k->rc = diginet_fader_encode(k->p, k->a, k->b, &k->out); break;
+	case BUTTON: k->rc = diginet_button_encode(k->a, k->b, (int)k->c, &k->out); break;
+	case TOUCH: k->rc = diginet_touch_encode(k->p, k->a, (int)k->c, &k->out); break;
+	case VPOT: k->rc = diginet_vpot_encode(k->p, k->a, k->delta, &k->out); break;
+	case JOG: k->rc = diginet_jog_encode(k->delta, &k->out); break;
+	case RING: k->rc = diginet_ring_encode(k->p, k->a, (uint16_t)k->b, &k->out); break;
+	case METER: k->rc = diginet_meter_encode(k->p, k->a, (int)k->c, k->b, &k->out); break;
+	case STRIP_LEDS: k->rc = diginet_strip_leds_encode(k->p, k->a, k->b, &k->out); break;
+	case COUNTER_LEDS: k->rc = diginet_counter_leds_encode(k->p, k->b, &k->out); break;
+	case SCRIBBLE: k->rc = diginet_scribble_encode(k->p, k->a, k->bytes, &k->out); break;
+	case COUNTER: k->rc = diginet_counter_encode(k->p, k->bytes, (uint8_t)k->b, &k->out); break;
+	default:
+		k->rc = diginet_sysex_encode((uint8_t)k->a, (uint8_t)k->b, k->bytes, k->n, &k->out);
+		break;
+	}
+	owe(k);
+	check_refusal(k);
+	check_range(k);
+	if (k->rc == SPEC_OK)
+		check_bytes(k);
+}
+
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 {
 	static const enum diginet_desk DESK[3] = {
 		DIGINET_DESK_UNKNOWN, DIGINET_DESK_CONTROL24, DIGINET_DESK_PROCONTROL,
 	};
+	static const struct spec_desk *const SPEC_DESK[3] = { NULL, &SPEC_C24, &SPEC_PC };
 	char text[TEXT_MAX + 1];
 
 	if (size >= FUZZ_INPUT_MAX)
 		return 0;
+	check_personality();
 	struct fuzz_in in = fuzz_in(data, size);
 	for (int ops = 0; ops < OPS_MAX && in.n; ops++) {
 		uint8_t op = fuzz_u8(&in);
@@ -294,83 +572,87 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 		memset(&k, 0, sizeof k);
 		k.kind = op % 15;
 		k.p = diginet_personality_of(DESK[op / 15 % 3]);
-		const struct diginet_personality *tp = k.p ? k.p : diginet_personality_of(DIGINET_DESK_CONTROL24);
+		k.desk = SPEC_DESK[op / 15 % 3];
 		memset(&k.before, 0xa5, sizeof k.before);
 		memcpy(&k.out, &k.before, sizeof k.out);   /* padding too: it is compared */
 		switch (k.kind) {
-		case 0:
-			k.a = fuzz_u8(&in), k.b = fuzz_u16(&in);
-			k.rc = diginet_fader_encode(k.p, k.a, k.b, &k.out);
+		case FADER:
+			k.a = fuzz_u32(&in), k.b = fuzz_u32(&in);
 			break;
-		case 1:
-			k.a = fuzz_u8(&in), k.b = fuzz_u8(&in), k.c = fuzz_u8(&in) & 1;
-			k.rc = diginet_button_encode(k.a, k.b, (int)k.c, &k.out);
+		case RING:
+			k.a = fuzz_u32(&in), k.b = fuzz_u16(&in);
 			break;
-		case 2:
-			k.a = fuzz_u8(&in), k.c = fuzz_u8(&in) & 1;
-			k.rc = diginet_touch_encode(k.p, k.a, (int)k.c, &k.out);
+		case BUTTON:
+			k.a = fuzz_u32(&in), k.b = fuzz_u32(&in), k.c = fuzz_u32(&in);
 			break;
-		case 3:
-			k.a = fuzz_u8(&in), k.delta = (int16_t)fuzz_u16(&in);
-			k.rc = diginet_vpot_encode(k.p, k.a, k.delta, &k.out);
+		case TOUCH:
+			k.a = fuzz_u32(&in), k.c = fuzz_u32(&in);
 			break;
-		case 4:
-			k.delta = (int16_t)fuzz_u16(&in);
-			k.rc = diginet_jog_encode(k.delta, &k.out);
+		case VPOT:
+			k.a = fuzz_u32(&in), k.delta = (int32_t)fuzz_u32(&in);
 			break;
-		case 5:
-			k.a = fuzz_u8(&in), k.b = fuzz_u16(&in);
-			k.rc = diginet_ring_encode(k.p, k.a, (uint16_t)k.b, &k.out);
+		case JOG:
+			k.delta = (int32_t)fuzz_u32(&in);
 			break;
-		case 6:
-			k.a = fuzz_u8(&in), k.c = fuzz_u8(&in) & 1, k.b = fuzz_u8(&in);
-			k.rc = diginet_meter_encode(k.p, k.a, (int)k.c, k.b, &k.out);
+		case METER:
+			k.a = fuzz_u32(&in), k.c = fuzz_u32(&in), k.b = fuzz_u32(&in);
 			break;
-		case 7:
-			k.a = fuzz_u8(&in), k.b = fuzz_u8(&in);
-			k.rc = diginet_strip_leds_encode(k.p, k.a, k.b, &k.out);
+		case STRIP_LEDS:
+			k.a = fuzz_u32(&in), k.b = fuzz_u32(&in);
 			break;
-		case 8:
-			k.b = fuzz_u8(&in);
-			k.rc = diginet_counter_leds_encode(k.p, k.b, &k.out);
+		case COUNTER_LEDS:
+			k.b = fuzz_u32(&in);
 			break;
-		case 9:
-			k.a = fuzz_u8(&in);
-			for (int i = 0; i < DIGINET_SCRIBBLE_MAX; i++)
+		case SCRIBBLE:
+			k.a = fuzz_u32(&in);
+			for (int i = 0; i < SPEC_CHARS_MAX; i++)
 				k.bytes[i] = fuzz_u8(&in);
-			k.rc = diginet_scribble_encode(k.p, k.a, k.bytes, &k.out);
 			break;
-		case 10:
+		case COUNTER:
 			k.b = fuzz_u8(&in);
-			for (int i = 0; i < DIGINET_COUNTER_DIGITS; i++)
+			for (int i = 0; i < SPEC_DIGITS; i++)
 				k.bytes[i] = fuzz_u8(&in);
-			k.rc = diginet_counter_encode(k.p, k.bytes, (uint8_t)k.b, &k.out);
 			break;
-		case 11:
+		case SYSEX:
 			k.a = fuzz_u8(&in), k.b = fuzz_u8(&in);
-			k.n = fuzz_take(&in, fuzz_u8(&in) % (DIGINET_CMD_MAX_LEN + 1), &pp);
+			k.n = fuzz_take(&in, fuzz_u8(&in) % (SPEC_CMD_MAX + 1), &pp);
 			memcpy(k.bytes, pp, k.n);
-			k.rc = diginet_sysex_encode((uint8_t)k.a, (uint8_t)k.b, k.bytes, k.n, &k.out);
 			break;
-		case 12:
-			k.a = fuzz_u8(&in);
+		case SCRIBBLE_TEXT:
+			/* the text's characters, then the scribble write that carries them */
+			if (!k.p) {
+				k.p = diginet_personality_of(DIGINET_DESK_CONTROL24);
+				k.desk = &SPEC_C24;
+			}
+			k.a = fuzz_u8(&in) & 0x7f;
 			text_arg(&in, text);
-			check_text_scribble(text, tp, k.a);
-			continue;
-		case 13:
+			check_text_scribble(text, k.bytes, sizeof k.bytes, k.desk->chars);
+			k.kind = SCRIBBLE;
+			break;
+		case COUNTER_TEXT: {
+			/* the counter text's digits and dots, then the counter write that carries them */
+			uint8_t dots;
+			if (!k.p) {
+				k.p = diginet_personality_of(DIGINET_DESK_CONTROL24);
+				k.desk = &SPEC_C24;
+			}
 			text_arg(&in, text);
-			check_text_counter(text, tp);
-			continue;
+			check_text_seg7();
+			check_text_counter(text, k.bytes, sizeof k.bytes, &dots);
+			/* a text the counter cannot show gives no digits, so no counter write */
+			if (owed_counter_text(text, k.bytes, &dots) != SPEC_OK)
+				continue;
+			k.b = dots;
+			k.kind = COUNTER;
+			break;
+		}
 		default: {
-			unsigned n = fuzz_u8(&in);
+			unsigned n = fuzz_u32(&in);
 			check_text_masks(n, fuzz_u16(&in));
 			continue;
 		}
 		}
-		check_refusal(&k);
-		check_range(&k);
-		if (k.rc == DIGINET_OK)
-			check_round_trip(&k);
+		run(&k);
 	}
 	return 0;
 }

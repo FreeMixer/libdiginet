@@ -4,126 +4,177 @@ libdiginet reads raw Ethernet frames a desk sends (EtherType 0x885F): the frame 
 the command stream of a data frame, the controls in it, and the session those frames drive.
 Every function that reads those bytes has a libFuzzer harness here, built with clang under
 AddressSanitizer and UndefinedBehaviorSanitizer and run in CI on every push and pull request
-(`.github/workflows/fuzz.yml`).
+(`.github/workflows/fuzz.yml`). The harnesses are written to the build contract of OSS Verify
+(its `docs/build-contract.md`, "The checks of a fuzz target"), which proves never-crash and the
+declared properties over them.
 
 Each harness is one plain C file defining `LLVMFuzzerTestOneInput`. It reads its input as a
 small program: a few bytes that choose what the reader is given (a personality, a config), then
 a frame, a body or a sequence of operations, until the input ends. Every input means something,
 and the end of the input ends it. No harness reads a clock, the environment, a file or the
 network, starts a thread or installs a signal handler; a time the session needs is a time the
-input chooses. Properties are checked with `if (!cond) abort();`, never `assert()`, every
-outcome an input can choose returns 0, and an input of 64 MiB or more is refused. A frame or
-body is copied into an allocation of exactly its length, so a read one byte past it is a
-sanitizer report.
+input chooses. Every input of 64 MiB or more is refused, and every other outcome an input can
+choose returns 0. A frame or body is copied into an allocation of exactly its length, so a read
+one byte past it is a sanitizer report.
 
-The harnesses call the library as it is. They do not carry a grammar of their own: the
-protocol is `protocol/diginet.ksy` and the library's reading of it. Where a property needs to
-know what bytes should say, it asks a second libdiginet function (the builder for the parser,
-the encoder for the decoder, the cursor for the decoder, `diginet_body_check()` for the
-refusal) and requires the two to agree; the offsets and limits it uses are the constants of
-`include/diginet/`.
+## The expected values come from the protocol, not from the library
 
-## The harnesses
+A check that takes its expected value from the code it judges holds for a library that is wrong
+the same way. So no check here compares libdiginet with itself. `fuzz/spec.h` is the protocol as
+the harnesses hold it, written from `protocol/diginet.ksy` and `docs/protocol.md`: the offsets,
+codes, limits and personalities, each with a `contract:` line naming the line it stands on, and
+the harnesses' own readers of a frame (`spec_read_frame`), of the command stream
+(`spec_msg_step`) and of the controls in it (`spec_event_of`). The few values only the library's
+header defines (its return codes, the key of a command, the 24-byte command, the 512-command
+queue) are written out there too, so a change to the header is a change a check sees.
 
-| Harness | Readers it feeds | Input |
+Each harness holds the library to that reading: the parser to the grammar's reading of the same
+bytes, the builder to the frame the grammar makes of its fields, the cursor and the decoder to
+the grammar's steps and the controls `docs/protocol.md` makes of them, each encoder to the bytes
+`docs/protocol.md` gives for its control and to the range `diginet_codec.h` gives it, and the
+session to a model of `diginet_session.h` that the harness runs itself (below). A frame the
+session sends is read with the harness's own reader.
+
+## The checks and their records
+
+Every property is an `if (...) abort();`, never `assert()`, inside a `noinline` function
+`check_<property>` (or `check_<property>_<part>`). The comment of each check says what it checks,
+names its `contract:`, and carries one or more records, as OSS Verify's `tools/check` reads them:
+
+```
+/* Each header field is the big-endian value at its offset.
+ * contract: docs/protocol.md:37-43; protocol/diginet.ksy `header`
+ * mutant: src/diginet_frame.c:81 `rd32(h + 8)` -> `rd32(h + 4)`
+ * input: ack */
+```
+
+A record is a one-line change of `src/`, `include/` or `transport/src/` and the seed it shows
+on: with the change, that seed makes THAT check abort; without it, the seed passes. The one
+stop that is not a property, the harness's own failed allocation in `fuzz_alloc()`
+(`fuzz/fuzz.h`), carries the line `not a property: the harness's own allocation failed` in place
+of a record.
+
+`make fuzz-records` (`fuzz/records.sh`) proves every record at this commit. First the ratchet:
+`fuzz/checks.awk` reads every `abort()` of `fuzz/` and its comment, and a check with no record
+and no `not a property:` line, or a record not of the form, is red before anything is built.
+Then, for each record alone, it makes the change (the old text must occur once on that line),
+builds the plain native harness against the library compiled the same way (no sanitizer,
+`fuzz/standalone.c` as the driver, every `abort()` of the harness naming its own line), runs the
+named seed, requires exit 134 from the record's own check, and puts the file back. Every named
+seed must exit 0 on the unchanged tree. The count of records met is the proof:
+
+```
+make fuzz-records: all 137 records and 21 patches met, each by its own check on its own seed (103 checks)
+```
+
+| Harness | Checks | Records | Sabotage patches |
+| --- | ---: | ---: | ---: |
+| frame | 23 | 29 | 4 |
+| decode | 23 | 33 | 3 |
+| codec | 17 | 26 | 6 |
+| transport | 40 | 49 | 8 |
+
+### What each harness checks
+
+The header comment of each harness states its properties in full; in short:
+
+| Harness | Readers it feeds | Properties |
 | --- | --- | --- |
-| `fuzz_frame` | `diginet_frame_parse`, `diginet_frame_build`, `diginet_frame_is_keepalive`, `diginet_announce_parse`, `diginet_sum16` (`src/diginet_frame.c`) | one Ethernet frame of any length |
-| `fuzz_decode` | `diginet_msg_next` (`src/diginet_msg.c`); `diginet_decoder_next` (`src/diginet_decode.c`); `diginet_body_check` (`src/diginet_codec.c`) | a personality and a body, or a whole frame whose body is decoded |
-| `fuzz_codec` | every encoder of `src/diginet_codec.c`, the scribble and counter text helpers, the meter and ring masks; the decoder reading back what they make | up to 256 encoder calls with their arguments and personality |
-| `fuzz_transport` | `diginet_session_rx`, `_tick`, `_submit`, `_wake`, `_close`, `_poll`, `_deadline` (`transport/src/diginet_session.c`) | a config, then up to 1024 operations: a raw or built desk frame, an announce, time passing, a command, a wake, a close, a failed send, a poll |
+| `fuzz_frame` | `diginet_frame_parse`, `diginet_frame_build`, `diginet_frame_is_keepalive`, `diginet_mac_is_digidesign`, `diginet_announce_parse`, `diginet_sum16` | parse: each refusal with its code, every field where the grammar puts it; round-trip: the builder makes the grammar's frame of those fields and refuses a body past 1484 bytes, the system family and a buffer one byte short; announce: only an e0 or e1 of 33 bytes, `unknown`, version and name at 0, 15 and 24 |
+| `fuzz_decode` | `diginet_msg_next`, `diginet_decoder_next`, `diginet_body_check` | cursor: each step of the grammar, message or refusal, with its place, bytes, cursor and running status; events: each step as the control `docs/protocol.md` makes of it, every field; refusal: a body refused exactly when it holds F0 13 xx 70 |
+| `fuzz_codec` | every encoder of `src/diginet_codec.c`, the personalities, `diginet_scribble_text`, `diginet_seg7`, `diginet_counter_text`, the meter and ring helpers | personality, refusal of function 0x70, range (success exactly in range, the code otherwise, the command untouched on failure), bytes (the control's message, its key, the display flag), text |
+| `fuzz_transport` | `diginet_session_rx`, `_tick`, `_submit`, `_wake`, `_close`, `_poll`, `_deadline` | sent, ack, inflight, state, keepalive, latest, refusal (below) |
 
-The packet socket and the descriptor io (`transport/src/diginet_io.c`) read no bytes of their
-own: they hand a whole frame to the session, which `fuzz_transport` drives with the frame the
-input chose. `fuzz_transport` is the session's io: its send records every frame the session
-sends, and its recv hands `diginet_session_poll()` a frame the input chose.
+`fuzz_transport` is the session's io: its send reads and records every frame the session sends
+(and fails one when the input asks), its recv hands `diginet_session_poll()` a frame the input
+chose. It runs the session the header describes on its own: the desk it learns, its state and
+the reason of each change, the handshake since the last e2, the desk's latest announce, the frame
+in flight and its retransmissions, the keepalive clock, the back-off after a desk retry, the
+display pacing, the host's counter and the queue of commands. Before each operation it works out
+what the operation owes; every frame and notice the library then gives is held to the model as it
+happens, and the state, the timers and the queue after it. Its properties: every frame sent is
+the grammar's, to the known desk, padded, with the sum its mode asks and no system family; every
+desk data frame ACKed once with its counter; one frame in flight, retransmitted never early, never
+past `max_retries`, always once due; ONLINE only after the a0 and an e1 naming this host; an e2
+exactly when the host wakes and never into another host's session; the keepalive on its own
+clock, never early, never skipped; frames within `max_cmds` and `max_body`, their count and
+counter right, display writes paced; the queue exactly the pending commands, latest in place,
+and a command that may go gone after each tick; a command holding F0 13 xx 70 refused. Each
+timer has a seed that reaches it exactly, so a bound moved by one shows.
 
-### What each harness checks, and the mutant that breaks it
+## The sabotage patches
 
-Every property is the checks of one `check_<property>` function (or `check_<property>_<part>`),
-and has one recorded mutant, `fuzz/mutants/<harness>-<property>.patch`: a one-line change to the
-library that the seed corpus alone catches, in that function and no other. The header comment
-of every harness states its properties in full.
+`fuzz/sabotage/<harness>-<property>.patch` is a bug in the code a harness drives, at least one
+for each property, as `git diff` writes it; a further bug of the same property is
+`<harness>-<property>.<what>.patch`. Above its `diff --git` line it names the check it
+breaks and the seed that shows it, the two lines OSS Verify reads (its `docs/project-yaml.md`,
+"mutants"):
 
-| Harness | Property | What must hold | Mutant | Seed that finds it |
-| --- | --- | --- | --- | --- |
-| frame | parse | the parser refuses exactly what diginet.h says, each with its code, and reads what it accepts inside the buffer: body, length, padding, sum, keepalive | the EtherType refusal tests for 0 | `wrong-ethertype` |
-| frame | round-trip | an accepted frame is what the builder makes of its fields, byte for byte, and parses back the same; the builder refuses exactly the system family and an oversized body | the ack counter written from the send counter | `ack` |
-| frame | announce | only an e0 or e1 of 33 body bytes or more is an announce; version and name are the bytes at 15 and 24, up to a NUL, at most 9, terminated | the name read one byte early | `announce_cntrl24` |
-| decode | cursor | every call moves forward and ends; a message lies where diginet.ksy puts it (F0 to its first F7; a status, or running status, then one data byte for C0/D0 and two otherwise, each under 0x80); each refusal steps where diginet.h says | the first data byte of a channel message not checked for bit 7 | `status-for-data` |
-| decode | events | the decoder returns the cursor's messages in order, each event of its message's family; a fader MSB takes the next message as its LSB exactly when it is B0 (20+tt) | the LSB read but not stepped past | `fader_move` |
-| decode | refusal | a body holding F0 13 xx 70, whole or cut short, is refused by `diginet_body_check` and the builder, the decoder names it and nothing else `DIGINET_EV_SYSTEM`, and a body is refused only when one is in it | the cut-short scan misses one that ends the body | `system-cut-short` |
-| codec | refusal | `diginet_sysex_encode` never makes function 0x70 and leaves its output untouched; no encoder output holds the system family | only an empty 0x70 message refused | `sysex-system` |
-| codec | range | each encoder succeeds exactly in the range its comment gives, `DIGINET_E_ARG` without a personality, output untouched on failure | the fader takes the strip one past the last | `fader-past-last-strip` |
-| codec | round-trip | what an encoder makes decodes as one event of its kind with the values encoded, every byte used; its key names its address, display writes only for scribble and counter | the fader LSB shifted by 3 instead of 4 | `fader-full` |
-| codec | text | what the text helpers accept, the encoders take; the meter mask and segment count invert each other; the ring helpers light what they name | the counter text accepts a dot on the rightmost digit | `counter-text-last-dot` |
-| transport | ack | every desk data frame to this host is ACKed at once with its send counter, while the session is not closed, and no other frame is | the ACK echoes the frame's ack counter | `data-acked` |
-| transport | inflight | one host frame in flight; a retransmission is that frame with retry 1, 2, ... never past `max_retries`; `ACK_LOST` after exactly `max_retries`, `ACKED` only for the frame in flight | one retransmission past `max_retries` | `wake-unanswered` |
-| transport | latest | a sent body is commands submitted, not sent before and not replaced for their key; the queue holds exactly what is pending; a queued key never lacks room | a newer command takes the old one's key but not its bytes | `coalesce` |
-| transport | refusal | a command `diginet_body_check` refuses is refused by submit and not queued; every frame sent parses and carries no system message | submit checks all but the last byte | `submit-system-cut-short` |
-| transport | state | ONLINE only after an a0 for the e2 and an e1 naming this host since it; never an e2 while another host's session is the desk's latest announce | a foreign session refuses a wake only while online | `wake-foreign` |
+```
+Breaks the check of fuzz/fuzz_frame.c:46 (the EtherType refusal tests for 0, not for 0x885F).
+Caught by the seed input "wrong-ethertype" of fuzz_frame.
+```
 
-`make fuzz-sabotage` applies each mutant, rebuilds its harness and runs every seed of the
-harness's corpus once, without fuzzing. A mutant passes when at least one seed aborts and every
-seed that aborts does so in that property's own `check_` function; a sanitizer report, or an
-abort in another property, makes it red, since the mutant then breaks a property it does not
-name. All 15 are found today.
+`make fuzz-sabotage` applies each, rebuilds the sanitizer harness and runs every seed of its
+corpus once, without fuzzing: the named seed must abort inside that property's `check_`
+function, and every seed that fails must fail by an abort in some check, not a sanitizer report.
+`make fuzz-records` proves the line the header names. One patch, `transport-sent`, is two lines:
+the session's queue and the frame builder each refuse F0 13 xx 70, so no one-line change makes
+the session send it.
 
-## The seed corpus
+## The seed corpus and the coverage witness
 
 `fuzz/corpus/<harness>/` is written by `fuzz/gen-corpus.c` (`make fuzz-corpus`) from what the
 repository already holds: the golden frames of `tests/golden/frames.txt`, and commands the
-library's own encoders make. Beside them it writes one input per refusal a reader makes (a
-short frame, a wrong EtherType, a numbytes past the buffer, an announce one byte short, a
-status byte where a data byte is due, a sysex with no F7, F0 13 xx 70 whole, cut short and
-inside another sysex, each encoder past its range ...), and sessions that reach every state:
-the handshake, desk data and retries, an e2 nobody answers, keepalives and silence, the ways a
-session ends, a foreign session, coalescing, full frames, paced display writes, a full queue.
-Nothing is fetched and nothing is random; the corpus is committed, and `make fuzz-corpus-check`
-is red when it is not what the generator writes.
+library's own encoders make. Beside them it writes one input per refusal a reader makes, each
+range at its last accepted and first refused value, and sessions that reach every state and
+timer. Nothing is fetched and nothing is random; the corpus is committed, and
+`make fuzz-corpus-check` is red when it is not what the generator writes. Together the seeds run
+every check of every harness.
 
-## The coverage witness
+`make fuzz-coverage` builds each harness for `llvm-cov` (no sanitizers), runs it once over its
+corpus and prints the line coverage of the reader functions it drives (`fuzz/coverage.sh`), then
+every line of them no seed reached. `fuzz/coverage-floor.txt` holds the covered lines each
+harness reaches today, and the target is red when one falls below it. Every check of a harness
+must be reached by a seed, and must carry a record or a `not a property:` line; a check that
+misses either is named by file and line and turns the target red.
 
-`make fuzz-cov` builds each harness for `llvm-cov` (no sanitizers,
-`-fprofile-instr-generate -fcoverage-mapping`), runs it once over its corpus (`-runs=0`) and
-prints the line coverage of the reader functions it drives (the lists are in
-`fuzz/coverage.sh`), then every line of them no seed reached. `fuzz/coverage-floor.txt` holds
-the number of covered lines each harness reaches today, and `make fuzz-cov` is red when one
-falls below it. Every property check in `fuzz/fuzz_*.c`, an `abort()` and the statement that
-guards it, must be executed by at least one seed (`fuzz/checks.awk`); one that no seed reaches
-turns it red, naming the file and the line:
+`make fuzz-static` builds each harness with `fuzz/standalone.c` for its driver and the library
+sources, fully static, checks that the program has no interpreter and no dynamic section, and
+runs it over its corpus: the build a verifier that brings its own driver takes.
 
-```
-  CHECK: fuzz/fuzz_frame.c:52 no seed reaches (abort at line 53): if (r != DIGINET_E_ETHERTYPE)
-  FLOOR: fuzz_frame covers 90 reader lines, below its floor of 91
-make fuzz-cov: RED -- below the coverage floor: frame
-make fuzz-cov: RED -- harness checks no seed reaches: frame
-```
+## What has no harness, and why
 
-| Harness | Reader lines | Covered | Lines no seed reaches |
-| --- | ---: | ---: | --- |
-| frame | 95 | 95.79% | the four `DIGINET_E_ARG` returns for a NULL pointer or an unknown sum mode |
-| decode | 233 | 98.28% | the four NULL-pointer guards of the cursor and the decoder |
-| codec | 269 | 97.03% | the eight NULL-pointer guards (`out`, `text`) of the encoders and text helpers |
-| transport | 417 | 97.60% | the NULL-session and invalid-config guards; `send_control` and `send_data` returning a builder refusal, which cannot happen: a control frame has no body, and `take()` stops before a command that would make the body one the builder refuses |
-
-The argument guards are the library's answer to a caller's NULL pointer, not to desk bytes;
-no input reaches them because no harness passes a NULL.
+- **Dante.** libdiginet holds no Dante code: the desks it drives speak DigiNet only.
+- **A file or config reader.** There is none. The session config
+  (`struct diginet_session_config`) is a struct the caller fills, not bytes from outside; the
+  harness fills it from its input, every field in the range the session takes.
+- **The packet socket and the descriptor io** (`transport/src/diginet_io.c`). They read no bytes
+  of their own: they hand a whole frame to the session, which `fuzz_transport` drives with the
+  frame the input chose, through its own recv. What is left is system calls (`socket`, `bind`,
+  `poll`, `recvfrom`, `clock_gettime`), which a harness may not make.
+- **`diginet-probe`** (`tools/diginet-probe.c`) reads its arguments and drives the library over
+  a packet socket; the bytes it reads go through the readers above.
+- **The name tables** (`diginet_strerror`, `diginet_state_name`, `diginet_reason_name`) map a
+  code to a constant string and read no input bytes.
 
 ## Running
 
 ```
 make fuzz                    # build every harness into build/fuzz/
 make fuzz-run FUZZ_TIME=60   # fuzz each for 60 s; red on any crash
-make fuzz-sabotage           # every mutant found, each by its own property
-make fuzz-cov                # the coverage witness and its floors
+make fuzz-sabotage           # every patch found, each in its own property
+make fuzz-records            # every record met, each at its own check
+make fuzz-coverage           # the coverage witness and its floors
+make fuzz-static             # each harness linked fully static, over its corpus
 make fuzz-corpus             # write fuzz/corpus/ again
 make fuzz-corpus-check       # red when fuzz/corpus/ is not what fuzz-corpus writes
 ```
 
-They need clang with libFuzzer and, for `fuzz-cov`, `llvm-profdata` and `llvm-cov`; on Fedora
-`dnf install clang compiler-rt llvm`. The harnesses link a library of their own, compiled from
-the same sources with the sanitizers into `build/fuzz/obj/`, so the ordinary `make` and
-`make test` builds are never touched.
+They need clang with libFuzzer, `llvm-profdata` and `llvm-cov` for `fuzz-coverage`, and the
+static libc for `fuzz-static`; on Fedora `dnf install clang compiler-rt llvm glibc-static`. The
+harnesses link a library of their own, compiled from the same sources into `build/fuzz/`, so the
+ordinary `make` and `make test` builds are never touched.
 
 One harness by hand, with its corpus and a scratch directory for what it finds:
 
@@ -152,4 +203,4 @@ every later run replays it first. Two are there now, each from a bug `fuzz_trans
   retry count, in place of the data frame (`check_inflight_retry`).
 - `transport/split-system`: two commands each whole alone, the first ending `F0 13` and the
   second starting `A0 70`, made F0 13 A0 70 side by side; the builder refused the frame and
-  every command taken for it was dropped without a notice (`check_latest_queue`).
+  every command taken for it was dropped without a notice (`check_latest_sent`).

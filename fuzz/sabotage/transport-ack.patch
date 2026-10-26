@@ -1,6 +1,11 @@
+Breaks the check of fuzz/fuzz_transport.c:429 (the ACK echoes the frame's ack counter, not its send counter).
+Caught by the seed input "data-acked" of fuzz_transport.
+
+diff --git a/transport/src/diginet_session.c b/transport/src/diginet_session.c
+index 72e8c8d..7a35737 100644
 --- a/transport/src/diginet_session.c
 +++ b/transport/src/diginet_session.c
-@@ -239,7 +239,7 @@
+@@ -239,7 +239,7 @@ static void on_ack(struct diginet_session *s, const struct diginet_frame *f)
  static void on_data(struct diginet_session *s, const struct diginet_frame *f, uint64_t now)
  {
  	/* Every desk data frame is acknowledged, a retransmitted one again. */

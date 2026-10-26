@@ -1,0 +1,16 @@
+Breaks the check of fuzz/fuzz_transport.c:514 (a foreign session refuses a wake only while online).
+Caught by the seed input "wake-foreign" of fuzz_transport.
+
+diff --git a/transport/src/diginet_session.c b/transport/src/diginet_session.c
+index 72e8c8d..b67b45e 100644
+--- a/transport/src/diginet_session.c
++++ b/transport/src/diginet_session.c
+@@ -122,7 +122,7 @@ int diginet_session_wake(struct diginet_session *s, uint64_t now_us)
+ 		return DIGINET_E_ARG;
+ 	if (!s->desk_known)
+ 		return DIGINET_E_ARG;
+-	if (s->foreign) {
++	if (s->foreign && s->state == DIGINET_S_ONLINE) {
+ 		s->stats.refused++;
+ 		return DIGINET_E_REFUSED;   /* never steal another host's session */
+ 	}

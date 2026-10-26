@@ -1,0 +1,15 @@
+Breaks the check of fuzz/fuzz_frame.c:262 (the name is read one byte early).
+Caught by the seed input "announce_cntrl24" of fuzz_frame.
+
+diff --git a/src/diginet_frame.c b/src/diginet_frame.c
+index 5a8a8ea..85a9eb6 100644
+--- a/src/diginet_frame.c
++++ b/src/diginet_frame.c
+@@ -146,6 +146,6 @@ int diginet_announce_parse(const struct diginet_frame *f, struct diginet_announc
+ 	a->unknown = f->body;
+ 	a->unknown_len = 15;
+ 	copy_strz(a->version, sizeof a->version, f->body + 15, 9);
+-	copy_strz(a->name, sizeof a->name, f->body + 24, 9);
++	copy_strz(a->name, sizeof a->name, f->body + 23, 9);
+ 	return DIGINET_OK;
+ }

@@ -1,0 +1,16 @@
+Breaks the check of fuzz/fuzz_codec.c:483 (the counter text takes a dot on the rightmost digit, which has no bit).
+Caught by the seed input "counter-text-last-dot" of fuzz_codec.
+
+diff --git a/src/diginet_codec.c b/src/diginet_codec.c
+index 89a2aed..f44c570 100644
+--- a/src/diginet_codec.c
++++ b/src/diginet_codec.c
+@@ -359,7 +359,7 @@ int diginet_counter_text(const char *text, uint8_t seg[DIGINET_COUNTER_DIGITS],
+ 		int from = i - lead;
+ 		seg[i] = from >= 0 ? s[from] : 0;
+ 		if (from >= 0 && dot[from]) {
+-			if (i == DIGINET_COUNTER_DIGITS - 1)
++			if (i == DIGINET_COUNTER_DIGITS)
+ 				return DIGINET_E_RANGE;  /* the rightmost dot has no bit (A5) */
+ 			d |= DIGINET_COUNTER_DOT(i);
+ 		}

@@ -1,6 +1,11 @@
+Breaks the check of fuzz/fuzz_frame.c:163 (the builder writes the send counter where the ack counter goes).
+Caught by the seed input "ack" of fuzz_frame.
+
+diff --git a/src/diginet_frame.c b/src/diginet_frame.c
+index 5a8a8ea..88a7923 100644
 --- a/src/diginet_frame.c
 +++ b/src/diginet_frame.c
-@@ -115,7 +115,7 @@
+@@ -115,7 +115,7 @@ int diginet_frame_build(uint8_t *buf, size_t cap,
  	wr16(p, (uint16_t)(DIGINET_HDR_LEN + body_len));
  	wr16(p + 2, mode == DIGINET_SUM_BODY ? diginet_sum16(body, body_len) : 0);
  	wr32(p + 4, h->send_counter);

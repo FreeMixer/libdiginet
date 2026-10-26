@@ -1,6 +1,11 @@
+Breaks the check of fuzz/fuzz_decode.c:275 (the scan for a cut-short system message misses one that ends the body).
+Caught by the seed input "system-cut-short" of fuzz_decode.
+
+diff --git a/src/diginet_codec.c b/src/diginet_codec.c
+index 89a2aed..d7f22ca 100644
 --- a/src/diginet_codec.c
 +++ b/src/diginet_codec.c
-@@ -56,7 +56,7 @@
+@@ -56,7 +56,7 @@ int diginet_body_check(const uint8_t *body, size_t len)
  			return DIGINET_E_REFUSED;
  	}
  	/* A cut-short F0 13 xx 70 has no F7 for the cursor to find: look for the prefix too. */

@@ -1,0 +1,16 @@
+Breaks the check of fuzz/fuzz_transport.c:467 (one retransmission past max_retries).
+Caught by the seed input "wake-unanswered" of fuzz_transport.
+
+diff --git a/transport/src/diginet_session.c b/transport/src/diginet_session.c
+index 72e8c8d..f0d8b67 100644
+--- a/transport/src/diginet_session.c
++++ b/transport/src/diginet_session.c
+@@ -428,7 +428,7 @@ int diginet_session_tick(struct diginet_session *s, uint64_t now)
+ 	}
+ 
+ 	if (s->inflight && now - s->inflight_sent_us >= ms(s->cfg.ack_timeout_ms)) {
+-		if (s->inflight_retries < s->cfg.max_retries) {
++		if (s->inflight_retries <= s->cfg.max_retries) {
+ 			int r = retransmit(s, now);
+ 			if (r < 0)
+ 				return r;

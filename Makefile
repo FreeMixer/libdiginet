@@ -126,10 +126,15 @@ ksy-check:
 #   make fuzz                   build every harness
 #   make fuzz-run FUZZ_TIME=60  fuzz each for the budget; red on any crash, the input left in
 #                               fuzz/findings/
-#   make fuzz-sabotage          each mutant of fuzz/mutants/ must make its harness abort on a
-#                               seed, in its own property
-#   make fuzz-cov               line coverage of each reader over its seed corpus, red below
+#   make fuzz-sabotage          each patch of fuzz/sabotage/ must make its harness abort on a
+#                               seed, in the property its header names
+#   make fuzz-records           each check's mutant: and input: record, alone, must make that
+#                               check abort on that seed; red on a check with no record and no
+#                               not-a-property line
+#   make fuzz-coverage          line coverage of each reader over its seed corpus, red below
 #                               fuzz/coverage-floor.txt or on a property check no seed reaches
+#   make fuzz-static            each harness linked fully static with a plain driver, over its
+#                               corpus
 #   make fuzz-corpus            write fuzz/corpus/ again from the golden frames and the builders
 #   make fuzz-corpus-check      red when fuzz/corpus/ is not what fuzz-corpus writes
 FUZZ_CC        ?= clang
@@ -150,7 +155,7 @@ $(FUZZ_BUILD)/obj/%.o: %.c
 $(FUZZ_LIB): $(FUZZ_SRCS:%.c=$(FUZZ_BUILD)/obj/%.o)
 	$(AR) rcs $@ $^
 
-$(FUZZ_BUILD)/fuzz_%: fuzz/fuzz_%.c fuzz/fuzz.h $(FUZZ_LIB)
+$(FUZZ_BUILD)/fuzz_%: fuzz/fuzz_%.c fuzz/fuzz.h fuzz/spec.h $(FUZZ_LIB)
 	$(FUZZ_CC) $(FUZZ_CFLAGS) $(FUZZ_SAN) -fsanitize=fuzzer -MMD -MP -MF $@.d $(INC) $< $(FUZZ_LIB) -o $@
 
 fuzz: $(FUZZ_BINS)
@@ -160,6 +165,29 @@ fuzz-run: fuzz
 
 fuzz-sabotage:
 	FUZZ_BUILD=$(FUZZ_BUILD) MAKE="$(MAKE)" fuzz/sabotage.sh
+
+# Each record built plain and native with fuzz/standalone.c for its driver, no sanitizer, as the
+# OSS Verify coverage build is.
+fuzz-records:
+	FUZZ_BUILD=$(FUZZ_BUILD) FUZZ_CC=$(FUZZ_CC) fuzz/records.sh $(FUZZ_HARNESSES)
+
+# The same harnesses driven by fuzz/standalone.c instead of libFuzzer and linked fully static,
+# each run over its corpus: the build a verifier that brings its own driver takes. Needs the
+# static libc (glibc-static on Fedora).
+FUZZ_STATIC_BUILD := $(FUZZ_BUILD)/static
+FUZZ_STATIC_FLAGS := -O2 -g -std=c11 -Wall -Wextra -Werror -D_DEFAULT_SOURCE
+
+$(FUZZ_STATIC_BUILD)/fuzz_%: fuzz/fuzz_%.c fuzz/fuzz.h fuzz/spec.h fuzz/standalone.c $(FUZZ_SRCS)
+	@mkdir -p $(@D)
+	$(FUZZ_CC) $(FUZZ_STATIC_FLAGS) -static $(INC) -Ifuzz $< fuzz/standalone.c $(FUZZ_SRCS) -o $@
+
+fuzz-static: $(FUZZ_HARNESSES:%=$(FUZZ_STATIC_BUILD)/fuzz_%)
+	@for h in $(FUZZ_HARNESSES); do \
+	  if readelf -lW $(FUZZ_STATIC_BUILD)/fuzz_$$h | grep -qE 'INTERP|DYNAMIC'; then \
+	    echo "fuzz-static: fuzz_$$h is not static"; exit 1; fi; \
+	  out=$$($(FUZZ_STATIC_BUILD)/fuzz_$$h fuzz/corpus/$$h/* 2>&1) || \
+	    { echo "$$out"; echo "fuzz-static: fuzz_$$h failed on its own corpus"; exit 1; }; \
+	  echo "fuzz_$$h, static: $$out"; done
 
 # The coverage witness: the same harnesses without sanitizers, instrumented for llvm-cov, each
 # run once over its seed corpus (-runs=0 executes the corpus and nothing else); the llvm-cov
@@ -177,15 +205,15 @@ $(FUZZ_COV_BUILD)/obj/%.o: %.c
 $(FUZZ_COV_LIB): $(FUZZ_SRCS:%.c=$(FUZZ_COV_BUILD)/obj/%.o)
 	$(AR) rcs $@ $^
 
-$(FUZZ_COV_BUILD)/fuzz_%: fuzz/fuzz_%.c fuzz/fuzz.h $(FUZZ_COV_LIB)
+$(FUZZ_COV_BUILD)/fuzz_%: fuzz/fuzz_%.c fuzz/fuzz.h fuzz/spec.h $(FUZZ_COV_LIB)
 	$(FUZZ_CC) $(FUZZ_COV_FLAGS) -fsanitize=fuzzer $(INC) $< $(FUZZ_COV_LIB) -o $@
 
-fuzz-cov: $(FUZZ_HARNESSES:%=$(FUZZ_COV_BUILD)/fuzz_%)
+fuzz-coverage: $(FUZZ_HARNESSES:%=$(FUZZ_COV_BUILD)/fuzz_%)
 	@set -e; for h in $(FUZZ_HARNESSES); do \
 	  rm -f $(FUZZ_COV_BUILD)/$$h.profraw; \
 	  LLVM_PROFILE_FILE=$(FUZZ_COV_BUILD)/$$h.profraw $(FUZZ_COV_BUILD)/fuzz_$$h -runs=0 \
 	      fuzz/corpus/$$h/ >$(FUZZ_COV_BUILD)/$$h.log 2>&1 || \
-	    { cat $(FUZZ_COV_BUILD)/$$h.log; echo "fuzz-cov: fuzz_$$h failed on its own corpus"; exit 1; }; \
+	    { cat $(FUZZ_COV_BUILD)/$$h.log; echo "fuzz-coverage: fuzz_$$h failed on its own corpus"; exit 1; }; \
 	  $(LLVM_PROFDATA) merge -sparse $(FUZZ_COV_BUILD)/$$h.profraw -o $(FUZZ_COV_BUILD)/$$h.profdata; \
 	done
 	@LLVM_COV=$(LLVM_COV) fuzz/coverage.sh $(FUZZ_COV_BUILD) $(FUZZ_HARNESSES)
@@ -245,4 +273,4 @@ clean:
 	rm -rf build
 
 .PHONY: all test ksy-check shared install install-common install-shared clean \
-	fuzz fuzz-run fuzz-sabotage fuzz-cov fuzz-corpus fuzz-corpus-check
+	fuzz fuzz-run fuzz-sabotage fuzz-records fuzz-coverage fuzz-static fuzz-corpus fuzz-corpus-check

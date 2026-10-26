@@ -16,6 +16,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "spec.h"
+
 /* The OSS Verify driver refuses an input file this large; the harnesses refuse it too, so
  * the domain they are proven over is the domain they are run over. */
 #define FUZZ_INPUT_MAX ((size_t)64 << 20)
@@ -73,17 +75,34 @@ static inline size_t fuzz_record(struct fuzz_in *in, const uint8_t **out)
 	return fuzz_take(in, fuzz_u16(in), out);
 }
 
-/* A heap copy of exactly `n` bytes. A frame handed to a parser lives in its own allocation,
- * so a read past its end lands in a redzone the sanitizer watches instead of in the next
- * record of the same input. */
-static inline uint8_t *fuzz_dup(const uint8_t *p, size_t n)
+/* A heap block of exactly `n` bytes (one for n = 0). A frame handed to a parser lives in its
+ * own allocation, so a read past its end lands in a redzone the sanitizer watches instead of
+ * in the next record of the same input. */
+static inline uint8_t *fuzz_alloc(size_t n)
 {
 	uint8_t *b = malloc(n ? n : 1);
+	/* not a property: the harness's own allocation failed */
 	if (!b)
 		abort();
+	return b;
+}
+
+static inline uint8_t *fuzz_dup(const uint8_t *p, size_t n)
+{
+	uint8_t *b = fuzz_alloc(n);
 	if (n)
 		memcpy(b, p, n);
 	return b;
+}
+
+/* Whether each of the `n` bytes at `p` is still `fill`: a buffer the library must not write
+ * past, filled before the call and read after it. */
+static inline int fuzz_all(const uint8_t *p, size_t n, uint8_t fill)
+{
+	for (size_t i = 0; i < n; i++)
+		if (p[i] != fill)
+			return 0;
+	return 1;
 }
 
 #endif /* DIGINET_FUZZ_H */

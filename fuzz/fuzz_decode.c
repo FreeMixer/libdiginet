@@ -3,221 +3,276 @@
 
 /* libFuzzer harness: THE COMMAND GRAMMAR (src/diginet_msg.c, src/diginet_decode.c and the
  * refusal of src/diginet_codec.c), the reading of protocol/diginet.ksy's `commands`,
- * `message` and `sysex` over the body of a data frame, and the events made of it.
+ * `message` and `sysex` over the body of a data frame, and the controls made of it.
  *
  * Input: [sel] then the rest.
- *   sel % 3 picks the personality the decoder reads addresses with: none (the decoder's
- *   default), Control|24, ProControl.
- *   sel & 0x80: the rest is one whole Ethernet frame, parsed by diginet_frame_parse(), and its
- *   body is decoded; a frame the parser refuses decodes as an empty body. Otherwise the rest
- *   is the body itself.
+ *   sel % 3 picks the personality the decoder is given: none (the decoder's default),
+ *   Control|24, ProControl.
+ *   sel & 0x80: the rest is one whole Ethernet frame, and the body the grammar reads in it
+ *   (fuzz/spec.h, spec_read_frame) is decoded; a frame the grammar refuses decodes as an
+ *   empty body. Otherwise the rest is the body itself.
  * The rest is copied into an allocation of exactly its length.
  *
- * Every message of the body is read twice: by the cursor alone (diginet_msg_next) and by the
- * decoder (diginet_decoder_next), which runs its own cursor; the two must agree.
+ * The harness reads the body itself, step by step, from the grammar (spec_msg_step) and the
+ * controls from docs/protocol.md (spec_event_of), and holds the library's cursor, its decoder
+ * and its refusal to that reading. No expected value comes from the library.
  *
- * Properties, each an abort():
- *   - cursor: every call moves the cursor forward, never past the body, and ends; a message
- *     lies inside the body at the cursor's place: an F0 message runs to its first F7 with
- *     its payload between them and cancels running status; a channel message has its status
- *     byte or the running status in force, then one data byte for C0 and D0 and two for
- *     every other status (diginet.ksy, `data2`), each under 0x80. A refused byte is a data
- *     byte with no running status (E_NO_STATUS) or a status byte F1..FF (E_STATUS), stepped
- *     over; a message cut short (E_TRUNCATED) stops at the end of the body or at the status
- *     byte where a data byte was due.
- *     Mutant: fuzz/mutants/decode-cursor.patch, the first data byte of a channel message is
- *     not checked for bit 7; seed status-for-data.
- *   - events: the decoder returns what the cursor returns, in the same order, each event
- *     carrying the message it came from; its kind is that message's family (90 a button, a
- *     touch or a zone key; B0 a fader, a jog, a V-Pot or other; F0 a sysex kind); a fader
- *     MSB (B0 tt, tt < 0x20) takes the next message as its LSB exactly when that message is
- *     B0 (20+tt), the position then MSB << 3 | LSB >> 4 & 7 (diginet_codec.h), and else says
- *     lsb_missing.
- *     Mutant: fuzz/mutants/decode-events.patch, the decoder reads the LSB but does not step
- *     past it; seed fader_move.
- *   - refusal: the system family, F0 13 xx 70, is never encoded. A body holding one, whole
- *     or cut short, is refused by diginet_body_check() and by diginet_frame_build(); the
- *     decoder reports it as DIGINET_EV_SYSTEM and no other sysex as that; and a body is
- *     refused only when an F0 13 xx 70 is in it.
- *     Mutant: fuzz/mutants/decode-refusal.patch, the scan for a cut-short system message
- *     misses one that ends the body; seed system-cut-short.
+ * Properties, each an abort() in a check_ function:
+ *   - cursor: diginet_msg_next() gives each step of the grammar in turn: the end only at
+ *     the end; a message where the grammar has one, with its place, length, status, running
+ *     flag and data bytes, or its sysex payload between F0 and the first F7; a refusal where
+ *     the grammar refuses (a data byte with no running status, a status byte F1..FF, a
+ *     message cut short), with the cursor where the next step starts and the running status
+ *     the grammar leaves in force.
+ *   - events: diginet_decoder_next() gives the same steps as controls: a refusal as the
+ *     cursor's code, and a message as the event docs/protocol.md makes of it, carrying that
+ *     message: a key, a touch or a zone key with its button, strip or zone and state; a fader
+ *     whose LSB is the next message exactly when that is B0 (20+tt); a jog or a V-Pot with its
+ *     delta; a ring, a meter, LEDs, a scribble write or the counter with every field; the
+ *     system family as DIGINET_EV_SYSTEM; the device byte of each sysex; anything else OTHER.
+ *   - refusal: diginet_body_check() refuses a body exactly when F0 13 xx 70 is in it, whole or
+ *     cut short.
  */
 #include <diginet/diginet.h>
 #include <diginet/diginet_codec.h>
 
 #include "fuzz.h"
 
-/* a message the decoder or a refusal must know: where an F0 13 xx 70 starts */
-static int system_at(const uint8_t *b, size_t len, size_t at)
+FUZZ_CHECK check_cursor_step(const struct spec_msg *m, int r, const struct diginet_cursor *c)
 {
-	return at + 3 < len && b[at] == 0xf0 && b[at + 1] == DIGINET_SYSEX_MAKER &&
-	       b[at + 3] == DIGINET_FN_SYSTEM;
-}
-
-static int is_system(const struct diginet_msg *m)
-{
-	return m->status == 0xf0 && m->sysex_len >= 3 && m->sysex[0] == DIGINET_SYSEX_MAKER &&
-	       m->sysex[2] == DIGINET_FN_SYSTEM;
-}
-
-FUZZ_CHECK check_cursor(const uint8_t *b, size_t len, size_t at, uint8_t status_in, int r,
-			const struct diginet_msg *m, const struct diginet_cursor *c)
-{
-	if (r == 0) {
-		/* the end, and only at the end */
-		if (at < len || c->pos != at)
-			abort();
-		return;
-	}
-	/* forward, never past the body */
-	if (c->pos <= at || c->pos > len)
+	/* The cursor ends exactly where the body ends.
+	 * contract: protocol/diginet.ksy `commands` (messages, repeat: eos); diginet.h:158
+	 * mutant: src/diginet_msg.c:32 `return 0;` -> `return 2;`
+	 * input: keepalive */
+	if ((m->code == 0) != (r == 0))
 		abort();
-	switch (r) {
-	case 1:
-		break;
-	case DIGINET_E_NO_STATUS:
-		if (b[at] >= 0x80 || status_in || c->pos != at + 1)
-			abort();
-		return;
-	case DIGINET_E_STATUS:
-		if (b[at] <= 0xf0 || c->pos != at + 1 || c->status)
-			abort();
-		return;
-	case DIGINET_E_TRUNCATED:
-		/* at the end, or at the status byte that came where a data byte was due */
-		if (c->pos != len && !(b[c->pos] & 0x80))
-			abort();
-		if (b[at] == 0xf0 && (c->pos != len || memchr(b + at, 0xf7, len - at)))
-			abort();
-		return;
-	default:
+	/* A data byte with no running status in force is refused as such.
+	 * contract: protocol/diginet.ksy `message` `status` (0 for none); diginet.h:66, :158-159
+	 * mutant: src/diginet_msg.c:76 `DIGINET_E_NO_STATUS` -> `DIGINET_E_STATUS`
+	 * input: no-status */
+	if (m->code == SPEC_E_NO_STATUS && r != SPEC_E_NO_STATUS)
 		abort();
-	}
-	if (m->offset != at || m->len == 0 || m->offset + m->len != c->pos)
+	/* A status byte F1..FF, which no message carries, is refused as such.
+	 * contract: protocol/diginet.ksy `message` (`lead`: F0 or a channel status); diginet.h:67
+	 * mutant: src/diginet_msg.c:64 `lead >= 0xf0` -> `lead > 0xf1`
+	 * input: status-f1 */
+	if (m->code == SPEC_E_STATUS && r != SPEC_E_STATUS)
 		abort();
-	if (m->status == 0xf0) {
-		/* F0, the payload, F7: the first F7, and running status cancelled */
-		if (b[at] != 0xf0 || b[c->pos - 1] != 0xf7 || m->running || c->status ||
-		    m->sysex != b + at + 1 || m->sysex_len != m->len - 2 ||
-		    memchr(m->sysex, 0xf7, m->sysex_len))
-			abort();
-		return;
-	}
-	/* a channel message: its own status byte or the one in force, then its data bytes */
-	if (m->status < 0x80 || m->status >= 0xf0 || m->running != (b[at] < 0x80))
+	/* A message cut short, by the end of the body or by a status byte where a data byte is
+	 * due, is refused as truncated.
+	 * contract: protocol/diginet.ksy `sysex` `payload` (terminator: 0xf7) and `data2`;
+	 * diginet.h:65
+	 * mutant: src/diginet_msg.c:48 `i >= c->len` -> `i > c->len`
+	 * input: sysex-no-f7 */
+	if (m->code == SPEC_E_TRUNCATED && r != SPEC_E_TRUNCATED)
 		abort();
-	if (m->running ? m->status != status_in : m->status != b[at])
+	/* A message the grammar reads is given as a message.
+	 * contract: protocol/diginet.ksy `message`
+	 * mutant: src/diginet_msg.c:89 `b[data_at + i] & 0x80` -> `b[data_at + i] & 0x40`
+	 * input: button_mute */
+	if (m->code == 1 && r != 1)
 		abort();
-	size_t data = (m->status & 0xe0) == 0xc0 ? 1 : 2;
-	size_t d = at + !m->running;
-	if (m->len != data + !m->running || m->d1 != b[d] || m->d1 >= 0x80 ||
-	    (data == 2 ? m->d2 != b[d + 1] || m->d2 >= 0x80 : m->d2 != 0))
+	/* The cursor stands where the grammar's next step starts: after the message, after the
+	 * refused byte, at the end, or at the status byte that cut a message short.
+	 * contract: diginet.h:158-160; src/diginet_msg.c:90
+	 * mutant: src/diginet_msg.c:91 `c->pos = data_at + i;` -> `c->pos = data_at + i + 1;`
+	 * input: status-for-data */
+	if (c->pos != m->next)
 		abort();
-	if (c->status != m->status)
+	/* The running status in force afterwards is the grammar's: the message's channel status,
+	 * none after a system exclusive or a refused status byte, unchanged otherwise.
+	 * contract: protocol/diginet.ksy `message` `running_status_out`; docs/protocol.md:71
+	 * mutant: src/diginet_msg.c:101 `c->status = status;` -> `c->status = 0;`
+	 * input: running_status
+	 * mutant: src/diginet_msg.c:47 `c->status = 0;` -> `c->status = c->status;`
+	 * input: status-cancelled */
+	if (c->status != m->status_out)
 		abort();
 }
 
-static int same_msg(const struct diginet_msg *a, const struct diginet_msg *b)
+FUZZ_CHECK check_cursor_message(const uint8_t *b, const struct spec_msg *m, const struct diginet_msg *msg)
 {
-	return a->status == b->status && a->running == b->running && a->d1 == b->d1 && a->d2 == b->d2 &&
-	       a->sysex == b->sysex && a->sysex_len == b->sysex_len && a->offset == b->offset &&
-	       a->len == b->len;
+	/* The message starts at the cursor's place and takes the bytes the grammar gives it.
+	 * contract: protocol/diginet.ksy `message`; diginet.h:138-147
+	 * mutant: src/diginet_msg.c:99 `m->len = data_at + n - start;` -> `m->len = data_at + n - start + 1;`
+	 * input: button_mute */
+	if (msg->offset != m->at || msg->len != m->len)
+		abort();
+	/* Its status is the status byte or the running status in force, and its data bytes are
+	 * the one (C0, D0) or two that follow.
+	 * contract: protocol/diginet.ksy `message` `status`, `running`, `data1`, `data2`
+	 * mutant: src/diginet_msg.c:98 `b[data_at + 1]` -> `b[data_at]`
+	 * input: button_mute */
+	if (msg->status != m->status || msg->running != m->running || msg->d1 != m->d1 ||
+	    msg->d2 != m->d2)
+		abort();
+	/* A system exclusive's payload is the bytes between F0 and its first F7.
+	 * contract: protocol/diginet.ksy `sysex` (terminator: 0xf7); diginet.h:143-144
+	 * mutant: src/diginet_msg.c:55 `m->sysex_len = i - start - 1;` -> `m->sysex_len = i - start;`
+	 * input: scribble_write */
+	if (m->status == 0xf0 && (msg->sysex != b + m->sysex_at || msg->sysex_len != m->sysex_len))
+		abort();
 }
 
-/* the decoder's event against the lockstep cursor `ls`, which it must match; a fader that
- * took its LSB moves `ls` past it too */
-FUZZ_CHECK check_events(int rd, const struct diginet_event *ev, struct diginet_cursor *ls)
-{
-	struct diginet_msg m, lsb;
-	int r = diginet_msg_next(ls, &m);
-
-	if (rd != r)
-		abort();
-	if (r != 1)
-		return;
-	if (!same_msg(&ev->msg, &m))
-		abort();
-	uint8_t family = m.status & 0xf0;
-	switch (ev->kind) {
-	case DIGINET_EV_SECTION_BUTTON:
-	case DIGINET_EV_TOUCH:
-	case DIGINET_EV_STRIP_BUTTON:
-		if (family != 0x90 || ev->button != m.d1 || ev->on != !!(m.d2 & 0x40))
-			abort();
-		return;
-	case DIGINET_EV_FADER: {
-		if (family != 0xb0 || m.d1 >= 0x20 || ev->strip != m.d1)
-			abort();
-		struct diginet_cursor peek = *ls;
-		int took = diginet_msg_next(&peek, &lsb) == 1 && (lsb.status & 0xf0) == 0xb0 &&
-			   lsb.d1 == 0x20 + m.d1;
-		if (took == ev->lsb_missing)
-			abort();
-		if (ev->value != (uint16_t)(m.d2 << 3 | (took ? lsb.d2 >> 4 & 7 : 0)))
-			abort();
-		if (took)
-			*ls = peek;
-		return;
-	}
-	case DIGINET_EV_JOG:
-	case DIGINET_EV_VPOT:
-		if (family != 0xb0 || ev->delta != (int16_t)(m.d2 - 64))
-			abort();
-		return;
-	case DIGINET_EV_RING:
-	case DIGINET_EV_METER:
-	case DIGINET_EV_STRIP_LEDS:
-	case DIGINET_EV_SCRIBBLE:
-	case DIGINET_EV_COUNTER:
-	case DIGINET_EV_SYSTEM:
-		if (m.status != 0xf0 || m.sysex_len < 3 || m.sysex[0] != DIGINET_SYSEX_MAKER ||
-		    ev->device != m.sysex[1])
-			abort();
-		return;
-	case DIGINET_EV_OTHER:
-		/* a note is always a key, and a fader MSB always a fader */
-		if (family == 0x90 || (family == 0xb0 && m.d1 < 0x20))
-			abort();
-		return;
-	default:
-		abort();
-	}
-}
-
-struct seen {
-	int system_msg;      /* the cursor read a whole F0 13 xx 70 */
-	int system_cut;      /* a message cut short starts F0 13 xx 70 */
+/* what the decoder owes for the step at `at`: the step, the control, and where the next step
+ * starts (after the fader's LSB when it took one) */
+struct owed {
+	struct spec_msg m;
+	struct spec_event e;
+	int lsb_missing;
+	size_t next;
+	uint8_t status_out;
 };
 
-FUZZ_CHECK check_refusal_event(const struct diginet_event *ev)
+static void owed_at(const uint8_t *b, size_t len, size_t at, uint8_t status, struct owed *o)
 {
-	/* the decoder names the system family, and nothing else, as DIGINET_EV_SYSTEM */
-	if ((ev->kind == DIGINET_EV_SYSTEM) != is_system(&ev->msg))
+	spec_msg_step(b, len, at, status, &o->m);
+	o->next = o->m.next;
+	o->status_out = o->m.status_out;
+	o->lsb_missing = 0;
+	memset(&o->e, 0, sizeof o->e);
+	if (o->m.code != 1)
+		return;
+	spec_event_of(b, &o->m, &o->e);
+	if (o->e.kind != SPEC_EV_FADER)
+		return;
+	/* B0 tt MSB (20+tt) LSB, the LSB's top three bits the position's low three
+	 * (docs/protocol.md:75): the next message, when it is that control change */
+	struct spec_msg lsb;
+	spec_msg_step(b, len, o->m.next, o->m.status_out, &lsb);
+	if (lsb.code == 1 && (lsb.status & 0xf0) == 0xb0 && lsb.d1 == 0x20 + o->m.d1) {
+		o->e.value |= (uint16_t)(lsb.d2 >> 4 & 7);
+		o->next = lsb.next;
+		o->status_out = lsb.status_out;
+	} else {
+		o->lsb_missing = 1;
+	}
+}
+
+FUZZ_CHECK check_events_step(const uint8_t *b, const struct owed *o, int rd, const struct diginet_event *ev)
+{
+	const struct spec_msg *m = &o->m;
+	/* The decoder gives what the cursor gives: a message, a refusal with its code, or the end.
+	 * contract: diginet_codec.h:216; diginet.h:158-160
+	 * mutant: src/diginet_decode.c:114 `return r;` -> `return 0;`
+	 * input: status-for-data
+	 * mutant: src/diginet_decode.c:140 `d->c = peek;` -> `d->c = d->c;`
+	 * input: fader_move */
+	if (rd != m->code)
+		abort();
+	if (rd != 1)
+		return;
+	/* The event carries the message it came from.
+	 * contract: diginet_codec.h:205
+	 * mutant: src/diginet_decode.c:116 `ev->msg = m;` -> `ev->msg.offset = m.offset;`
+	 * input: button_mute
+	 * mutant: src/diginet_decode.c:116 `ev->msg = m;` -> `ev->msg = m, ev->msg.running = 0;`
+	 * input: running_status */
+	if (ev->msg.offset != m->at || ev->msg.len != m->len || ev->msg.status != m->status ||
+	    ev->msg.running != m->running || ev->msg.d1 != m->d1 || ev->msg.d2 != m->d2 ||
+	    (m->status == 0xf0 && (ev->msg.sysex != b + m->sysex_at || ev->msg.sysex_len != m->sysex_len)))
+		abort();
+	/* The event is the control docs/protocol.md makes of the message.
+	 * contract: docs/protocol.md:75-146; fuzz/spec.h spec_event_of
+	 * mutant: src/diginet_decode.c:28 `m->d1 == DIGINET_BTN_TOUCH` -> `m->d1 == 0x0a`
+	 * input: touch
+	 * mutant: src/diginet_decode.c:100 `DIGINET_EV_SYSTEM` -> `DIGINET_EV_OTHER`
+	 * input: system-whole
+	 * mutant: src/diginet_decode.c:51 `pn != 3` -> `pn > 3`
+	 * input: sysex-wrong-sizes */
+	if ((int)ev->kind != o->e.kind)
 		abort();
 }
 
-FUZZ_CHECK check_refusal(const uint8_t *b, size_t len, const struct seen *s)
+FUZZ_CHECK check_events_fields(const uint8_t *b, const struct owed *o, const struct diginet_event *ev)
 {
-	static const uint8_t DST[DIGINET_MAC_LEN] = { 0x00, 0xa0, 0x7e, 0x24, 0x00, 0x01 };
-	static const uint8_t SRC[DIGINET_MAC_LEN] = { 0x02, 0x00, 0x00, 0x00, 0x00, 0x01 };
-	uint8_t frame[DIGINET_MAX_FRAME_LEN];
-	struct diginet_header h = { .cmd = DIGINET_CMD_DATA };
-	int refused = diginet_body_check(b, len) == DIGINET_E_REFUSED;
-	int any = 0;
+	const struct spec_event *e = &o->e;
+	int maker = o->m.status == 0xf0 && o->m.sysex_len >= 3 && b[o->m.sysex_at] == SPEC_MAKER;
+	int key = e->kind == SPEC_EV_TOUCH || e->kind == SPEC_EV_STRIP_BUTTON || e->kind == SPEC_EV_SECTION_BUTTON;
+	/* A key, a touch or a zone key: its button, whether it is down, its strip or its zone.
+	 * contract: docs/protocol.md:79, :99-100
+	 * mutant: src/diginet_decode.c:23 `(m->d2 & 0x40) != 0` -> `(m->d2 & 0x20) != 0`
+	 * input: button_mute */
+	if (key && (ev->button != e->button || ev->on != e->on ||
+		    (e->kind == SPEC_EV_SECTION_BUTTON ? ev->zone != e->zone : ev->strip != e->strip)))
+		abort();
+	/* A fader: its strip, the position MSB << 3 | LSB >> 4, and whether the LSB came.
+	 * contract: docs/protocol.md:75-76; diginet_codec.h:178
+	 * mutant: src/diginet_decode.c:139 `(lsb.d2 >> 4) & 7` -> `(lsb.d2 >> 3) & 7`
+	 * input: running_status
+	 * mutant: src/diginet_decode.c:134 `(uint16_t)(m.d2 << 3)` -> `(uint16_t)(m.d2 << 2)`
+	 * input: fader_move
+	 * mutant: src/diginet_decode.c:142 `ev->lsb_missing = 1;` -> `ev->lsb_missing = 0;`
+	 * input: fader-msb-only */
+	if (e->kind == SPEC_EV_FADER &&
+	    (ev->strip != e->strip || ev->value != e->value || ev->lsb_missing != o->lsb_missing))
+		abort();
+	/* A jog or a V-Pot: its strip and the delta dd - 64.
+	 * contract: docs/protocol.md:87, :89
+	 * mutant: src/diginet_decode.c:154 `(int16_t)(m.d2 - 64)` -> `(int16_t)(m.d2 - 63)`
+	 * input: jog-vpot */
+	if ((e->kind == SPEC_EV_JOG || e->kind == SPEC_EV_VPOT) &&
+	    (ev->delta != e->delta || (e->kind == SPEC_EV_VPOT && ev->strip != e->strip)))
+		abort();
+	/* A ring: its strip and the 15 LEDs it lights, LED 1 from the address byte.
+	 * contract: docs/protocol.md:94
+	 * mutant: src/diginet_decode.c:58 `(1u << (1 + k))` -> `(1u << (2 + k))`
+	 * input: ring */
+	if (e->kind == SPEC_EV_RING && (ev->strip != e->strip || ev->mask != e->mask))
+		abort();
+	/* A meter: its channel and side, its 14-bit mask and the segments that lights, or -1.
+	 * contract: docs/protocol.md:129-130
+	 * mutant: src/diginet_decode.c:69 `(pl[0] & 0x20) != 0` -> `(pl[0] & 0x10) != 0`
+	 * input: meter-right
+	 * mutant: src/diginet_codec.c:214 `(mask >> n) ? -1 : n` -> `n`
+	 * input: meter-not-thermometer
+	 * mutant: src/diginet_codec.c:212 `n < DIGINET_METER_SEGMENTS` -> `n < 13`
+	 * input: meter-right */
+	if (e->kind == SPEC_EV_METER &&
+	    (ev->addr != e->addr || ev->strip != e->strip || ev->right != e->right ||
+	     ev->mask != e->mask || ev->segments != e->segments))
+		abort();
+	/* LEDs: the address and the bits.
+	 * contract: docs/protocol.md:112-113
+	 * mutant: src/diginet_decode.c:79 `ev->mask = pl[1];` -> `ev->mask = pl[0];`
+	 * input: strip-leds */
+	if (e->kind == SPEC_EV_STRIP_LEDS &&
+	    (ev->addr != e->addr || ev->strip != e->strip || ev->mask != e->mask))
+		abort();
+	/* A scribble write: the address and its characters, NUL-terminated.
+	 * contract: docs/protocol.md:118, :123
+	 * mutant: src/diginet_decode.c:87 `pl + 2` -> `pl + 1`
+	 * input: scribble_write */
+	if (e->kind == SPEC_EV_SCRIBBLE &&
+	    (ev->addr != e->addr || ev->len != e->len || memcmp(ev->text, e->text, e->len) ||
+	     ev->text[e->len] != '\0'))
+		abort();
+	/* The counter: the address, the dots, and the digits left to right as shown.
+	 * contract: docs/protocol.md:135-137
+	 * mutant: src/diginet_decode.c:97 `DIGINET_COUNTER_DIGITS - 1 - k` -> `k`
+	 * input: counter_write */
+	if (e->kind == SPEC_EV_COUNTER &&
+	    (ev->addr != e->addr || ev->dots != e->dots || memcmp(ev->seg, e->seg, SPEC_DIGITS)))
+		abort();
+	/* Every sysex of the maker 13 carries its device byte, whatever its function.
+	 * contract: docs/protocol.md:146; protocol/diginet.ksy `sysex` `device`
+	 * mutant: src/diginet_decode.c:46 `ev->device = s[1];` -> `ev->device = s[2];`
+	 * input: meter */
+	if (maker && ev->device != e->device)
+		abort();
+}
 
-	for (size_t i = 0; i < len && !any; i++)
-		any = system_at(b, len, i);
-	/* a whole system message, or one cut short, is refused */
-	if ((s->system_msg || s->system_cut) && !refused)
+FUZZ_CHECK check_refusal(const uint8_t *b, size_t len)
+{
+	int want = spec_system_at(b, len) >= 0 ? SPEC_E_REFUSED : SPEC_OK;
+	/* A body is refused exactly when it holds F0 13 xx 70, whole or cut short.
+	 * contract: docs/protocol.md:140-144; diginet_codec.h:172-173
+	 * mutant: src/diginet_codec.c:59 `i + 3 < len` -> `i + 4 < len`
+	 * input: system-cut-short
+	 * mutant: src/diginet_codec.c:55 `m.sysex[0] == DIGINET_SYSEX_MAKER &&` -> ``
+	 * input: system-other-maker */
+	if (diginet_body_check(b, len) != want)
 		abort();
-	/* and a body is refused only when one is in it */
-	if (refused && !any)
-		abort();
-	if (len <= DIGINET_MAX_BODY_LEN) {
-		int n = diginet_frame_build(frame, sizeof frame, DST, SRC, &h, b, len, DIGINET_SUM_BODY);
-		if (refused ? n != DIGINET_E_REFUSED : n < 0)
-			abort();
-	}
 }
 
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
@@ -225,12 +280,11 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 	static const enum diginet_desk DESK[3] = {
 		DIGINET_DESK_UNKNOWN, DIGINET_DESK_CONTROL24, DIGINET_DESK_PROCONTROL,
 	};
-	struct diginet_frame f;
-	struct diginet_cursor c, ls;
+	struct spec_frame w;
+	struct diginet_cursor c;
 	struct diginet_decoder d;
-	struct diginet_msg m;
+	struct diginet_msg msg;
 	struct diginet_event ev;
-	struct seen s = { 0, 0 };
 
 	if (size >= FUZZ_INPUT_MAX || size == 0)
 		return 0;
@@ -239,42 +293,52 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 	const uint8_t *body = buf;
 	size_t len = size - 1;
 	if (sel & 0x80) {
-		if (diginet_frame_parse(buf, len, &f) == DIGINET_OK) {
-			body = f.body;
-			len = f.body_len;
+		if (spec_read_frame(buf, len, &w) == SPEC_OK) {
+			body = w.body;
+			len = w.body_len;
 		} else {
 			len = 0;
 		}
 	}
-	const struct diginet_personality *p = diginet_personality_of(DESK[sel % 3]);
 
-	/* the cursor alone; every call moves it, so this ends within len + 1 calls */
+	/* the cursor, a step of the grammar at a time; each step moves forward, so this ends
+	 * within len + 1 steps */
 	diginet_cursor_init(&c, body, len);
-	for (;;) {
-		size_t at = c.pos;
-		uint8_t status_in = c.status;
-		int r = diginet_msg_next(&c, &m);
-		check_cursor(body, len, at, status_in, r, &m, &c);
-		if (r == 0)
+	size_t at = 0;
+	uint8_t status = 0;
+	for (size_t steps = 0; steps <= len; steps++) {
+		struct spec_msg m;
+		spec_msg_step(body, len, at, status, &m);
+		memset(&msg, 0, sizeof msg);
+		int r = diginet_msg_next(&c, &msg);
+		check_cursor_step(&m, r, &c);
+		if (m.code == 1)
+			check_cursor_message(body, &m, &msg);
+		if (m.code == 0)
 			break;
-		if (r == 1 && is_system(&m))
-			s.system_msg = 1;
-		if (r == DIGINET_E_TRUNCATED && system_at(body, len, at))
-			s.system_cut = 1;
+		at = m.next;
+		status = m.status_out;
 	}
 
-	/* the decoder, against a cursor of its own */
-	diginet_decoder_init(&d, p, body, len);
-	diginet_cursor_init(&ls, body, len);
-	for (;;) {
+	/* the decoder, the same way */
+	diginet_decoder_init(&d, diginet_personality_of(DESK[sel % 3]), body, len);
+	at = 0;
+	status = 0;
+	for (size_t steps = 0; steps <= len; steps++) {
+		struct owed o;
+		owed_at(body, len, at, status, &o);
+		memset(&ev, 0, sizeof ev);
 		int rd = diginet_decoder_next(&d, &ev);
-		check_events(rd, &ev, &ls);
-		if (rd == 0)
+		check_events_step(body, &o, rd, &ev);
+		if (o.m.code == 1)
+			check_events_fields(body, &o, &ev);
+		if (o.m.code == 0)
 			break;
-		if (rd == 1)
-			check_refusal_event(&ev);
+		at = o.next;
+		status = o.status_out;
 	}
-	check_refusal(body, len, &s);
+
+	check_refusal(body, len);
 	free(buf);
 	return 0;
 }
