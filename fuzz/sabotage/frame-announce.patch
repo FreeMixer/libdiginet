@@ -1,4 +1,4 @@
-Breaks the check of fuzz/fuzz_frame.c:257 (the name is read one byte early).
+Breaks the check of fuzz/fuzz_frame.c:262 (the name is read one byte early).
 Caught by the seed input "announce_cntrl24" of fuzz_frame.
 
 diff --git a/src/diginet_frame.c b/src/diginet_frame.c

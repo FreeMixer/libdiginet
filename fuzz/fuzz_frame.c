@@ -19,8 +19,8 @@
  *     the header carries it, and a keepalive exactly a data frame whose body is the one
  *     byte 00.
  *   - round-trip: diginet_frame_build() makes, from the fields the grammar reads, the frame
- *     diginet.h promises: the MACs, 0x885F, numbytes, the body's sum (or zero in the zero-sum
- *     mode), the counters, retry, command and count, the body, zeros up to 60 bytes. It
+ *     diginet.h promises, whatever numbytes and sum the header it is given carries: the MACs,
+ *     0x885F, numbytes, the body's sum (or zero in the zero-sum mode), the counters, retry, command and count, the body, zeros up to 60 bytes. It
  *     refuses a body past 1484 bytes, one holding F0 13 xx 70, and a buffer one byte short,
  *     and writes nothing into that buffer.
  *   - announce: diginet_announce_parse() reads only an e0 or e1 of at least 33 body bytes;
@@ -117,7 +117,10 @@ FUZZ_CHECK check_round_trip(const struct spec_frame *w)
 	if (n_want < SPEC_MIN_FRAME)
 		n_want = SPEC_MIN_FRAME;
 	uint8_t *out = fuzz_alloc(n_want), *want = fuzz_alloc(n_want);
+	/* the builder ignores numbytes and sum (diginet.h:111): h carries the frame's own sum, and
+	 * a numbytes that is never 16 plus the body length, so a builder that reads either shows */
 	struct diginet_header h = {
+		.numbytes = (uint16_t)~w->numbytes, .sum = w->sum,
 		.send_counter = w->send, .ack_counter = w->ack, .retry = w->retry,
 		.cmd = w->cmd, .num_commands = w->ncmds,
 	};
@@ -167,7 +170,9 @@ FUZZ_CHECK check_round_trip(const struct spec_frame *w)
 		/* In the zero-sum mode the same frame carries zero where the sum goes.
 		 * contract: diginet.h:76-80, DIGINET_SUM_ZERO; docs/protocol.md:38
 		 * mutant: src/diginet_frame.c:116 `: 0);` -> `: 1);`
-		 * input: keepalive */
+		 * input: keepalive
+		 * mutant: src/diginet_frame.c:116 `: 0);` -> `: h->sum);`
+		 * input: fader_move */
 		if (n != (int)n_want || memcmp(out, want, n_want))
 			abort();
 		/* an allocation of exactly one byte short of the frame, so a write past it is a

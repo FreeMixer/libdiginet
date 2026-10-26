@@ -1,4 +1,4 @@
-Breaks the check of fuzz/fuzz_frame.c:160 (the builder writes the send counter where the ack counter goes).
+Breaks the check of fuzz/fuzz_frame.c:163 (the builder writes the send counter where the ack counter goes).
 Caught by the seed input "ack" of fuzz_frame.
 
 diff --git a/src/diginet_frame.c b/src/diginet_frame.c

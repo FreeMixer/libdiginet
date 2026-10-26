@@ -1,0 +1,16 @@
+Breaks the check of fuzz/fuzz_frame.c:177 (the zero-sum mode writes the sum of the header it is given, not zero).
+Caught by the seed input "fader_move" of fuzz_frame.
+
+diff --git a/src/diginet_frame.c b/src/diginet_frame.c
+index 5a8a8ea..8a09241 100644
+--- a/src/diginet_frame.c
++++ b/src/diginet_frame.c
+@@ -113,7 +113,7 @@ int diginet_frame_build(uint8_t *buf, size_t cap,
+ 	wr16(buf + 12, DIGINET_ETHERTYPE);
+ 	uint8_t *p = buf + DIGINET_ETH_HDR_LEN;
+ 	wr16(p, (uint16_t)(DIGINET_HDR_LEN + body_len));
+-	wr16(p + 2, mode == DIGINET_SUM_BODY ? diginet_sum16(body, body_len) : 0);
++	wr16(p + 2, mode == DIGINET_SUM_BODY ? diginet_sum16(body, body_len) : h->sum);
+ 	wr32(p + 4, h->send_counter);
+ 	wr32(p + 8, h->ack_counter);
+ 	wr16(p + 12, h->retry);
