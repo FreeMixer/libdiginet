@@ -64,15 +64,15 @@ named seed, requires exit 134 from the record's own check, and puts the file bac
 seed must exit 0 on the unchanged tree. The count of records met is the proof:
 
 ```
-make fuzz-records: all 127 records and 18 patches met, each by its own check on its own seed (97 checks)
+make fuzz-records: all 133 records and 18 patches met, each by its own check on its own seed (101 checks)
 ```
 
 | Harness | Checks | Records | Sabotage patches |
 | --- | ---: | ---: | ---: |
-| frame | 22 | 27 | 3 |
-| decode | 23 | 32 | 3 |
-| codec | 15 | 23 | 5 |
-| transport | 37 | 45 | 7 |
+| frame | 23 | 28 | 3 |
+| decode | 23 | 33 | 3 |
+| codec | 17 | 25 | 5 |
+| transport | 38 | 47 | 7 |
 
 ### What each harness checks
 
