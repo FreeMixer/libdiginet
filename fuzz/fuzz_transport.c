@@ -69,7 +69,8 @@
  *     it names: ONLINE only after an a0 for its e2 and an e1 naming this host since that e2;
  *     an e2 exactly when the host wakes and never while the desk's latest announce is a session
  *     with another host; an e3 on close only to a desk not in another host's session; every
- *     announce, desk data frame and foreign session noticed as the header says.
+ *     announce, desk data frame and foreign session noticed as the header says, a desk's
+ *     announce with the announce it carries.
  *   - keepalive: a keepalive goes every keepalive_ms on its own clock, never early, never
  *     skipped while nothing is in flight and no back-off holds; ACKs and data never move it.
  *   - latest: latest wins, and nothing is lost (tagged commands): a sent body is commands
@@ -170,6 +171,7 @@ static struct {
 	uint32_t acked_counter, acked_retry;
 	int desk_off;
 	const struct spec_desk *desk_p;
+	const uint8_t *desk_body;         /* the body of the desk's latest announce */
 	struct {
 		const uint8_t *body;
 		size_t len;
@@ -306,6 +308,7 @@ static int m_rx(const uint8_t *frame, size_t n)
 		OW.desk++;
 		OW.desk_off = off;
 		OW.desk_p = desk_named(f.body);
+		OW.desk_body = f.body;
 		if (f.cmd == SPEC_CMD_E0) {
 			/* ONLINE --(e0)--> IDLE; auto_wake sends e2 on an e0 (diginet_session.h:9, :63) */
 			M.foreign = 0;
@@ -531,6 +534,25 @@ FUZZ_CHECK check_state_desk(const struct diginet_notice *n)
 	if (GOT.desk > OW.desk || n->mac_offset != OW.desk_off || !n->personality != !OW.desk_p ||
 	    (n->personality && (n->personality->device != OW.desk_p->device ||
 				n->personality->strips != OW.desk_p->strips)))
+		abort();
+	/* The notice carries the announce.
+	 * contract: diginet_session.h:79
+	 * mutant: transport/src/diginet_session.c:197 `.announce = &a` -> `.announce = NULL`
+	 * input: online */
+	if (!n->announce)
+		abort();
+	size_t vn = spec_strz_len(OW.desk_body + SPEC_ANN_VERSION);
+	size_t nn = spec_strz_len(OW.desk_body + SPEC_ANN_NAME);
+	/* Its version is the body bytes from 15 and its name the body bytes from 24, each up to
+	 * its first NUL and at most 9, terminated. The body's first vn (nn) bytes there are not
+	 * NUL, so equal bytes and a NUL after them are the field's whole length.
+	 * contract: diginet_session.h:79; protocol/diginet.ksy `announce` `version` `name` (strz,
+	 * size: 9)
+	 * mutant: src/diginet_frame.c:148 `f->body + 15` -> `f->body + 14`
+	 * input: online */
+	if (memcmp(n->announce->version, OW.desk_body + SPEC_ANN_VERSION, vn) ||
+	    n->announce->version[vn] || memcmp(n->announce->name, OW.desk_body + SPEC_ANN_NAME, nn) ||
+	    n->announce->name[nn])
 		abort();
 }
 
