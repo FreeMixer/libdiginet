@@ -105,7 +105,8 @@ timer has a seed that reaches it exactly, so a bound moved by one shows.
 ## The sabotage patches
 
 `fuzz/sabotage/<harness>-<property>.patch` is a bug in the code a harness drives, at least one
-for each property, as `git diff` writes it. Above its `diff --git` line it names the check it
+for each property, as `git diff` writes it; a further bug of the same property is
+`<harness>-<property>.<what>.patch`. Above its `diff --git` line it names the check it
 breaks and the seed that shows it, the two lines OSS Verify reads (its `docs/project-yaml.md`,
 "mutants"):
 

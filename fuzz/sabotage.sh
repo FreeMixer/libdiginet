@@ -4,7 +4,8 @@
 #
 # `make fuzz-sabotage`: A PROPERTY NO MUTANT CAN BREAK CHECKS NOTHING. fuzz/sabotage/
 # <harness>-<property>.patch is a bug in the code the harness drives, at least one for each
-# property the harness checks, as `git diff` writes it; above its `diff --git` line it names
+# property the harness checks, as `git diff` writes it (a further bug of the same property is
+# <harness>-<property>.<what>.patch); above its `diff --git` line it names
 # the check it breaks and the seed that shows it, as OSS Verify reads a breakage patch
 # (docs/project-yaml.md, "mutants", there):
 #
@@ -50,6 +51,7 @@ for p in fuzz/sabotage/*.patch; do
 	m=$(basename "$p" .patch)
 	h=${m%%-*}
 	prop=${m#*-}
+	prop=${prop%%.*}
 	fn=check_$(echo "$prop" | tr - _)
 	n=$((n + 1))
 	# the check and the seed its header names
