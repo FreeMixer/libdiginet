@@ -1,11 +1,14 @@
 #!/bin/sh
-# diginet-probe opens a packet socket; give it that one capability, nothing more.
+# diginet-probe and diginet-packet-helper open a packet socket; give each that one capability,
+# nothing more. dpkg unpacks a binary without it, so it is set here on every configure.
 set -e
 
 if [ "$1" = configure ]; then
 	if command -v setcap >/dev/null 2>&1; then
-		setcap cap_net_raw=ep /usr/bin/diginet-probe ||
-			echo "diginet-tools: could not set cap_net_raw on /usr/bin/diginet-probe; run it as root or set it by hand" >&2
+		for b in /usr/bin/diginet-probe /usr/bin/diginet-packet-helper; do
+			setcap cap_net_raw=ep "$b" ||
+				echo "diginet-tools: could not set cap_net_raw on $b; run it as root or set it by hand" >&2
+		done
 	fi
 fi
 

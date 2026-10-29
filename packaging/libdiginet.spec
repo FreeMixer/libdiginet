@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # libdiginet, the protocol of the Digidesign Control|24 and ProControl surfaces, and
 # libdiginet-transport, the wire under it, from one source and one version; diginet-tools
-# carries diginet-probe.
+# carries diginet-probe and diginet-packet-helper.
 Name:           libdiginet
 Version:        0.1.1
 # The sonames' majors. rpm derives this package's provides and every consumer's requires from
@@ -43,7 +43,7 @@ Headers, pkg-config files (libdiginet, libdiginet-transport) and the Kaitai Stru
 the protocol, diginet.ksy, for building programs that drive a Control|24 or ProControl.
 
 %package -n diginet-tools
-Summary:        diginet-probe: the first test of a Control|24 or ProControl
+Summary:        diginet-probe and diginet-packet-helper for a Control|24 or ProControl
 Requires:       %{name}%{?_isa} = %{version}-%{release}
 
 %description -n diginet-tools
@@ -51,6 +51,10 @@ diginet-probe wakes a Control|24 or ProControl cabled to a network interface, mo
 lights a lamp, writes a scribble strip, logs and decodes every key, touch and turn, and ends
 with a summary of what the desk answered. It is installed with the one capability it needs
 to open a packet socket, cap_net_raw.
+
+diginet-packet-helper opens the packet socket that hears a desk on every network interface and
+hands it to the program that started it, so that program needs no capability. It is installed
+with cap_net_raw and nothing else.
 
 %prep
 %autosetup -n %{name}-%{version}
@@ -90,7 +94,9 @@ make CFLAGS="%{optflags}" test
 %files -n diginet-tools
 %doc docs/probe.md
 %caps(cap_net_raw=ep) %{_bindir}/diginet-probe
+%caps(cap_net_raw=ep) %{_bindir}/diginet-packet-helper
 %{_mandir}/man1/diginet-probe.1*
+%{_mandir}/man1/diginet-packet-helper.1*
 
 %changelog
 * Sat Oct 24 2026 Pau Aliagas <linuxnow@gmail.com> - 0.1.1-1

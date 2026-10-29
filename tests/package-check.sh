@@ -8,7 +8,8 @@
 #
 # installs libdiginet, its development package and diginet-tools with what they pull in; builds a
 # consumer outside the tree against the development package through pkg-config alone, and runs it
-# against the installed shared libraries; checks diginet-probe runs and carries cap_net_raw.
+# against the installed shared libraries; checks diginet-probe runs and that it and
+# diginet-packet-helper carry cap_net_raw.
 set -eu
 dir=$(cd "$1" && pwd)
 if command -v dnf >/dev/null 2>&1; then
@@ -50,9 +51,18 @@ ldd "$tmp/consumer" | grep -q 'libdiginet\.so\.0 => /' || { echo "FAIL: not link
 pkg-config --modversion libdiginet
 test -f /usr/share/diginet/diginet.ksy
 
-caps=$(getcap /usr/bin/diginet-probe)
-echo "$caps"
-echo "$caps" | grep -q 'cap_net_raw[=+]ep' || { echo "FAIL: /usr/bin/diginet-probe has no cap_net_raw"; exit 1; }
+# R14 (docs/protocol.md): install drops file capabilities, so each binary that needs one is asked.
+for b in /usr/bin/diginet-probe /usr/bin/diginet-packet-helper; do
+	caps=$(getcap "$b")
+	echo "$caps"
+	echo "$caps" | grep -q 'cap_net_raw[=+]ep' || { echo "FAIL: $b has no cap_net_raw"; exit 1; }
+done
+# The helper loads no shared library of ours while it holds the capability (read from a copy,
+# for the reason below).
+cp /usr/bin/diginet-packet-helper "$tmp/helper"
+if ldd "$tmp/helper" | grep -q 'libdiginet'; then
+	echo "FAIL: diginet-packet-helper is linked to a shared libdiginet"; exit 1
+fi
 # A container whose bounding set lacks CAP_NET_RAW refuses to exec a binary that carries it (EPERM),
 # so the binary itself is run from a copy, which carries no capability.
 cp /usr/bin/diginet-probe "$tmp/probe"

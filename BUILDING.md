@@ -42,7 +42,10 @@ that speaks the protocol; `test_transport` drives a session against it on a virt
 (minutes of desk time in milliseconds), `test_fdio` does the same on the real clock over a
 socketpair. `test_packet` runs the real `AF_PACKET` path: it enters a user and network
 namespace of its own, where it may open packet sockets on a private loopback; where
-unprivileged namespaces are not allowed it exits 77 and reports SKIP.
+unprivileged namespaces are not allowed it exits 77 and reports SKIP. `test_anyif` does the
+same with two veth pairs: it gives up its capabilities, takes the any-interface socket from
+`tools/diginet-packet-helper`, and checks that each desk is heard on its own interface (one
+made after the socket was opened) and that a frame goes out of the interface it is sent to.
 
 `test_probe` runs `tools/diginet-probe` as its own process against the emulator, with the
 wire on descriptor 3 and the operator's answers on stdin, and checks both the probe's output
@@ -59,6 +62,20 @@ sudo setcap cap_net_raw=ep ./tools/diginet-probe
 
 Every rebuild or copy makes a binary without the capability, so run `setcap` again after it.
 How to run it on a desk is in [docs/probe.md](docs/probe.md).
+
+## diginet-packet-helper
+
+`tools/diginet-packet-helper` opens the packet socket that hears every interface and hands it
+to the program that started it, over a Unix socket on its descriptor 3, so that program needs
+no capability ([docs/diginet-packet-helper.1](docs/diginet-packet-helper.1)). The helper is
+the one binary that holds `cap_net_raw`:
+
+```
+sudo setcap cap_net_raw=ep ./tools/diginet-packet-helper
+```
+
+It links the static archives, even in the packages, so it loads no shared library of ours
+while it holds the capability.
 
 ## The Kaitai grammar
 

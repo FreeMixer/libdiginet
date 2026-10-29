@@ -1,2 +1,4 @@
 usr/bin/diginet-probe
+usr/bin/diginet-packet-helper
 usr/share/man/man1/diginet-probe.1
+usr/share/man/man1/diginet-packet-helper.1

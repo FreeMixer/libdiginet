@@ -30,6 +30,9 @@ PKG_CONFIG_SYSROOT_DIR="$tmp/root" PKG_CONFIG_LIBDIR="$tmp/root/usr/lib/pkgconfi
 	{ echo "FAIL: a consumer does not build against the installed tree"; exit 1; }
 "$tmp/consumer" || { echo "FAIL: the consumer gave the wrong answer"; exit 1; }
 
+[ -x "$tmp/root/usr/bin/diginet-packet-helper" ] && [ -f "$tmp/root/usr/share/man/man1/diginet-packet-helper.1" ] ||
+	{ echo "FAIL: diginet-packet-helper or its manual page is not installed"; exit 1; }
+
 # A second install to another prefix names that prefix: nothing from the first one is reused.
 make -s -C "$top" install PREFIX=/opt/elsewhere DESTDIR="$tmp/other" >/dev/null || { echo "FAIL: second make install"; exit 1; }
 for pc in libdiginet libdiginet-transport; do

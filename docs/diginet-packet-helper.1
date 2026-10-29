@@ -1,0 +1,74 @@
+.\" SPDX-License-Identifier: GPL-3.0-or-later
+.\" Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
+.TH DIGINET-PACKET-HELPER 1 2026-10-29 "libdiginet" "User Commands"
+.SH NAME
+diginet-packet-helper \- open the DigiNet packet socket for an unprivileged program
+.SH SYNOPSIS
+.B diginet-packet-helper
+.B 3<>
+.I connected-unix-socket
+.SH DESCRIPTION
+.B diginet-packet-helper
+opens one raw packet socket for EtherType 0x885F, the protocol of the Digidesign Control|24 and
+ProControl, bound to no interface, so that it hears a desk on every network interface,
+interfaces that come up later included. It passes that socket over its descriptor 3, which must
+be a connected
+.B AF_UNIX
+socket, with
+.BR SCM_RIGHTS ,
+and exits.
+.PP
+It exists so that the program that drives the desk needs no privilege. Opening a packet socket
+needs the
+.B cap_net_raw
+capability; using one that is already open does not. The helper holds the capability, the
+program starts it, takes the socket and keeps no capability of its own. The library does all of
+it in one call,
+.BR diginet_packet_open_by_helper (),
+declared in
+.IR <diginet/transport/diginet_io.h> :
+a socketpair, the helper started with one end on its descriptor 3 and an empty environment,
+.BR diginet_packet_receive_fd (),
+which takes only an
+.B AF_PACKET
+socket, and the wait for the helper to exit.
+.PP
+The helper takes no arguments, reads no file, no environment and no input, loops on nothing and
+keeps no descriptor. The socket it passes carries only EtherType 0x885F, on every interface.
+.SH EXIT STATUS
+.TP
+.B 0
+The socket was passed.
+.TP
+.B 1
+The helper does not hold
+.BR cap_net_raw ;
+it says "needs cap_net_raw" on standard error.
+.TP
+.B 2
+Descriptor 3 is not a connected Unix socket, an argument was given, or the socket could not be
+opened or passed; standard error says which.
+.SH FILES
+The packages install it with the one capability it needs, as
+.PP
+.RS
+setcap cap_net_raw=ep /usr/bin/diginet-packet-helper
+.RE
+.PP
+and check it with
+.BR getcap (8),
+because
+.BR install (1)
+and every rebuild make a binary without it. It is linked statically against libdiginet, so it
+loads no shared library of the project while it holds the capability.
+.SH SECURITY
+Any user who may run the helper gets a raw socket for EtherType 0x885F on every interface: one
+that can hear and send DigiNet frames, and nothing else. A site that wants fewer users to have
+that restricts who may run it, for example with a group of its own and mode 0750.
+.SH SEE ALSO
+.BR diginet-probe (1),
+.BR packet (7),
+.BR unix (7),
+.BR capabilities (7),
+.BR setcap (8),
+.BR getcap (8)
