@@ -3,7 +3,8 @@
  *
  * A desk emulator: a test double that speaks the DigiNet protocol as docs/protocol.md
  * describes the desk. It announces e0 (idle) or e1 naming its host, answers e2 with a0 then
- * e1, ACKs host data frames, drops back to e0 when its host goes quiet for too long, ends
+ * e1 (a Control|24 with a0 alone and e0 announces, unless a test sets announces_session as
+ * the desk sometimes does), ACKs host data frames, drops back to e0 when its host goes quiet for too long, ends
  * the session on e3, and sends data frames of its own. Knobs make it misbehave on purpose:
  * drop ACKs, insist on the body sum, serve another host.
  *
@@ -17,6 +18,7 @@
 #include <stdint.h>
 
 #include <diginet/diginet.h>
+#include <diginet/diginet_codec.h>
 
 #define EMU_OUT_MAX   256
 #define EMU_LOG_MAX   4096
@@ -39,6 +41,8 @@ struct desk_emu {
 	uint8_t session_mac[DIGINET_MAC_LEN]; /* the host the desk is in session with */
 	int in_session;
 	int foreign;              /* in session with another host: announce e1 naming it */
+	int announces_session;    /* from the name: a ProControl announces e1 in session, a
+				   * Control|24 keeps announcing e0 */
 	uint32_t seq;             /* the desk's own send counter */
 	uint64_t last_host_us;    /* last frame from the session host */
 	uint64_t host_timeout_us; /* the desk drops to e0 after this much silence */

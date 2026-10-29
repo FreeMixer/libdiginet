@@ -5,8 +5,9 @@
  * handshake", "Acks, sequencing, retransmit", "Keepalive").
  *
  *   IDLE --(desk announces e0; host sends e2)--> WAKING
- *   WAKING --(desk a0 for the e2, and an e1 naming this host)--> ONLINE
- *   ONLINE --(e0, silence, an e1 naming another host, desk e3)--> IDLE
+ *   WAKING --(desk a0 for the e2, and an e1 naming this host from a desk that announces e1)--> ONLINE
+ *   ONLINE --(e0 once the session was announced in e1, a host frame lost while it was not,
+ *             silence, an e1 naming another host, desk e3)--> IDLE
  *   any --(diginet_session_close: host e3)--> CLOSED
  *
  * While a session lives:
@@ -47,13 +48,14 @@ enum diginet_session_state {
 enum diginet_reason {
 	DIGINET_R_NONE = 0,
 	DIGINET_R_WAKE,          /* the host sent e2 */
-	DIGINET_R_ONLINE,        /* a0 and an e1 naming this host */
-	DIGINET_R_DESK_OFFLINE,  /* the desk announced e0 */
+	DIGINET_R_ONLINE,        /* a0, and an e1 naming this host if the desk announces e1 */
+	DIGINET_R_DESK_OFFLINE,  /* e0 after an e1 named this host in this session */
 	DIGINET_R_SILENCE,       /* nothing from the desk for offline_ms */
 	DIGINET_R_FOREIGN,       /* the desk announced a session with another host */
-	DIGINET_R_WAKE_TIMEOUT,  /* no a0 + e1 within wake_timeout_ms */
+	DIGINET_R_WAKE_TIMEOUT,  /* not online within wake_timeout_ms */
 	DIGINET_R_DESK_DISCONNECT, /* the desk sent e3 */
 	DIGINET_R_CLOSED,        /* the host sent e3 */
+	DIGINET_R_ACK_LOST,      /* a host frame lost in a session no e1 has announced */
 };
 
 struct diginet_session_config {
