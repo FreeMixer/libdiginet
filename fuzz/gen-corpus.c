@@ -507,12 +507,12 @@ static void t_rawcmd(unsigned kind, unsigned addr, unsigned display, const uint8
 	put_rec(b, n);
 }
 
-/* e0, our e2, its a0, an e1 naming us: online */
+/* a ProControl: e0, our e2, its a0, an e1 naming us: online */
 static void online(void)
 {
-	t_announce(0, 13, 0);
+	t_announce(0, 13, 1);
 	t_frame(C_ACK | FROM_DESK | TO_HOST | ACK_LAST, 1, 0, 0, NULL, 0);
-	t_announce(1, 0, 0);
+	t_announce(1, 0, 1);
 }
 
 static const uint8_t MUTE[3] = { 0x90, 0x08, 0x40 };
@@ -613,39 +613,39 @@ static void transport_seeds(void)
 	/* the ways a session ends: e0, a desk e3, another host's e1, close */
 	config_default(F_AUTO);
 	online();
-	t_announce(0, 13, 0);
+	t_announce(0, 13, 1);
 	t_frame(C_ACK | FROM_DESK | TO_HOST | ACK_LAST, 1, 0, 0, NULL, 0);
 	t_announce(1, 3, 1);
 	t_frame(C_E3 | FROM_DESK | TO_HOST, 1, 0, 0, NULL, 0);
 	t_announce(0, 13, 2);
 	t_frame(C_ACK | FROM_DESK | TO_HOST | ACK_LAST, 1, 0, 0, NULL, 0);
-	t_announce(1, 10, 0);
+	t_announce(1, 10, 1);
 	put8(T_WAKE);
-	t_announce(0, 13, 0);
+	t_announce(0, 13, 1);
 	put8(T_CLOSE);
 	put8(T_CLOSE);
-	t_announce(0, 13, 0);
+	t_announce(0, 13, 1);
 	emit("transport", "session-ends");
 
 	/* a wake asked for while another host holds the desk */
 	config_default(0);
-	t_announce(1, 11, 0);
+	t_announce(1, 11, 1);
 	put8(T_WAKE);
 	emit("transport", "wake-foreign");
 
 	/* a close while another host holds the desk: no e3 */
 	config_default(0);
-	t_announce(1, 11, 0);
+	t_announce(1, 11, 1);
 	put8(T_CLOSE);
 	emit("transport", "close-foreign");
 
 	/* without auto_wake: woken by hand, online, then the desk's e0 ends it */
 	config_default(0);
-	t_announce(0, 13, 0);
+	t_announce(0, 13, 1);
 	put8(T_WAKE);
 	t_frame(C_ACK | FROM_DESK | TO_HOST | ACK_LAST, 1, 0, 0, NULL, 0);
-	t_announce(1, 0, 0);
-	t_announce(0, 13, 0);
+	t_announce(1, 0, 1);
+	t_announce(0, 13, 1);
 	emit("transport", "offline-e0");
 
 	/* online, then nothing from the desk for longer than offline_ms */
@@ -656,21 +656,21 @@ static void transport_seeds(void)
 
 	/* the e1 naming the host before the a0 of the e2: online only with both */
 	config_default(F_AUTO);
-	t_announce(0, 13, 0);
-	t_announce(1, 0, 0);
+	t_announce(0, 13, 1);
+	t_announce(1, 0, 1);
 	t_frame(C_ACK | FROM_DESK | TO_HOST | ACK_LAST, 1, 0, 0, NULL, 0);
 	emit("transport", "e1-before-ack");
 
 	/* the host's MAC at the last offset of the 15 leading bytes it fits */
 	config_default(F_AUTO);
-	t_announce(0, 13, 0);
+	t_announce(0, 13, 1);
 	t_frame(C_ACK | FROM_DESK | TO_HOST | ACK_LAST, 1, 0, 0, NULL, 0);
-	t_announce(1, 9, 0);
+	t_announce(1, 9, 1);
 	emit("transport", "e1-mac-at-9");
 
 	/* an e2 unanswered, with time passing in steps of 6 and 5 ms against a 10 ms ack timeout */
 	config(F_AUTO, 3, 10, 60000, 0, 60000, 3000, 0, 48, 314);
-	t_announce(0, 13, 0);
+	t_announce(0, 13, 1);
 	t_time(MSEC, 6);
 	t_time(MSEC, 5);
 	t_time(MSEC, 6);
@@ -709,7 +709,7 @@ static void transport_seeds(void)
 
 	/* the wake timeout and the silence, each reached exactly */
 	config(F_AUTO, 0, 100, 60000, 0, 60000, 5, 0, 48, 314);
-	t_announce(0, 13, 0);
+	t_announce(0, 13, 1);
 	t_time(MSEC, 5);
 	emit("transport", "wake-timeout-exact");
 	config(F_AUTO, 5, 100, 60000, 0, 7, 3000, 0, 48, 314);
@@ -727,7 +727,7 @@ static void transport_seeds(void)
 	/* a manual wake, in the zero-sum mode, through poll */
 	config_default(F_ZERO);
 	put8(T_WAKE);
-	t_announce(0, 13, 0);
+	t_announce(0, 13, 1);
 	put8(T_WAKE);
 	h.cmd = DIGINET_CMD_ACK;
 	h.ack_counter = 0;
@@ -736,7 +736,7 @@ static void transport_seeds(void)
 	h.cmd = DIGINET_CMD_DATA;
 	n = diginet_frame_build(f, sizeof f, HOST, DESK, &h, MUTE, sizeof MUTE, DIGINET_SUM_BODY);
 	put8(T_POLL); put8(0); put_rec(f, (size_t)n);
-	t_announce(1, 4, 0);
+	t_announce(1, 4, 1);
 	put8(T_POLL); put8(1); put_rec(f, (size_t)n);   /* and its retransmission behind it */
 	put8(T_POLL); put8(2); put_rec(f, (size_t)n);   /* recv fails */
 	put8(T_POLL); put8(0); put_rec(NULL, 0);
@@ -798,6 +798,43 @@ static void transport_seeds(void)
 	config_default(F_AUTO | F_RAW);
 	t_rawcmd(DIGINET_KEY_LEDS, 1, 0, SYS, 4);
 	emit("transport", "submit-system-cut-short");
+	/* a Control|24: online on the a0 alone, its e0 in session no loss, its keepalive ACKed */
+	config(F_AUTO, 5, 100, 10, 0, 60000, 3000, 0, 48, 314);
+	t_announce(0, 13, 0);
+	t_frame(C_ACK | FROM_DESK | TO_HOST | ACK_LAST, 1, 0, 0, NULL, 0);
+	t_announce(0, 13, 0);
+	t_time(MSEC, 10);
+	t_frame(C_ACK | FROM_DESK | TO_HOST | ACK_LAST, 2, 0, 0, NULL, 0);
+	t_announce(0, 13, 0);
+	emit("transport", "c24-session");
+
+	/* a Control|24 that stops ACKing: its keepalive lost after max_retries ends the session,
+	 * and its next e0 wakes it again */
+	config(F_AUTO, 2, 1, 10, 0, 60000, 3000, 0, 48, 314);
+	t_announce(0, 13, 0);
+	t_frame(C_ACK | FROM_DESK | TO_HOST | ACK_LAST, 1, 0, 0, NULL, 0);
+	t_time(MSEC, 10);
+	for (int i = 0; i < 3; i++)
+		t_time(MSEC, 1);
+	t_announce(0, 13, 0);
+	t_frame(C_ACK | FROM_DESK | TO_HOST | ACK_LAST, 1, 0, 0, NULL, 0);
+	emit("transport", "c24-ack-lost");
+
+	/* a Control|24 announcing its session in e1: e1 naming us after its a0, then its e0 ends
+	 * the session and wakes it again */
+	config_default(F_AUTO);
+	t_announce(0, 13, 0);
+	t_frame(C_ACK | FROM_DESK | TO_HOST | ACK_LAST, 1, 0, 0, NULL, 0);
+	t_announce(1, 0, 0);
+	t_announce(0, 13, 0);
+	emit("transport", "c24-e1-then-e0");
+
+	/* a desk no name selects is held to e1: its a0 alone is not online, the e1 then is */
+	config_default(F_AUTO);
+	t_announce(0, 13, 2);
+	t_frame(C_ACK | FROM_DESK | TO_HOST | ACK_LAST, 1, 0, 0, NULL, 0);
+	t_announce(1, 0, 2);
+	emit("transport", "unknown-desk-e1");
 }
 
 int main(int argc, char **argv)
