@@ -4,7 +4,7 @@
  * libdiginet-transport: one host's session with one desk (docs/protocol.md, "Discovery and
  * handshake", "Acks, sequencing, retransmit", "Keepalive").
  *
- *   IDLE --(desk announces e0; host sends e2)--> WAKING
+ *   IDLE --(desk announces e0, or e1 naming this host; host sends e2)--> WAKING
  *   WAKING --(desk a0 for the e2, and an e1 naming this host from a desk that announces e1)--> ONLINE
  *   ONLINE --(e0 once the session was announced in e1, a host frame lost while it was not,
  *             silence, an e1 naming another host, desk e3)--> IDLE
@@ -62,7 +62,7 @@ struct diginet_session_config {
 	uint8_t host_mac[DIGINET_MAC_LEN];
 	uint8_t desk_mac[DIGINET_MAC_LEN]; /* used when desk_mac_set: talk to this desk only */
 	int desk_mac_set;
-	int auto_wake;                  /* send e2 on an e0 (and again after a session ends) */
+	int auto_wake;                  /* send e2 on an e0 or an e1 naming this host, while IDLE */
 	enum diginet_sum_mode sum_mode; /* the header sum of host frames */
 	uint32_t keepalive_ms;          /* 10000 */
 	uint32_t ack_timeout_ms;        /* 100 */

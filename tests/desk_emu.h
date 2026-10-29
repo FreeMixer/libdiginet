@@ -52,6 +52,9 @@ struct desk_emu {
 	int require_sum;          /* do not ACK a data frame whose header sum is not the body sum */
 	int mute;                 /* send nothing at all (a desk that went away) */
 	int ack_wake;             /* answer e2 (default 1) */
+	int holds_after_e3;       /* after its host's e3, keep announcing e1 naming that host
+				   * until host_timeout_us, as a Control|24 does for ~30 s */
+	int stale;                /* a session the host closed that the desk still announces */
 
 	/* what the desk has seen */
 	struct emu_rx log[EMU_LOG_MAX];

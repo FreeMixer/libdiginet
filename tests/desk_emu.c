@@ -41,7 +41,7 @@ void emu_announce(struct desk_emu *e, uint64_t now_us)
 	(void)now_us;
 	uint8_t body[DIGINET_ANNOUNCE_BODY_LEN];
 	memset(body, 0, sizeof body);
-	int session = (e->in_session && e->announces_session) || e->foreign;
+	int session = (e->in_session && e->announces_session) || e->foreign || e->stale;
 	if (session)
 		memcpy(body, e->session_mac, 6);   /* where the emulator puts the host (A6) */
 	memcpy(body + 15, e->version, strlen(e->version));
@@ -54,6 +54,7 @@ void emu_drop_session(struct desk_emu *e)
 {
 	e->in_session = 0;
 	e->foreign = 0;
+	e->stale = 0;
 }
 
 void emu_from_host(struct desk_emu *e, const uint8_t *buf, size_t len, uint64_t now_us)
@@ -85,6 +86,7 @@ void emu_from_host(struct desk_emu *e, const uint8_t *buf, size_t len, uint64_t 
 			return;
 		memcpy(e->session_mac, f.src, 6);
 		e->in_session = 1;
+		e->stale = 0;
 		e->last_host_us = now_us;
 		queue(e, f.src, DIGINET_CMD_ACK, e->seq, f.h.send_counter, 0, 0, NULL, 0);
 		if (r) r->acked = 1;
@@ -93,6 +95,10 @@ void emu_from_host(struct desk_emu *e, const uint8_t *buf, size_t len, uint64_t 
 		return;
 	case DIGINET_CMD_DISCONNECT:
 		e->disconnects++;
+		if (e->holds_after_e3 && e->in_session && !memcmp(f.src, e->session_mac, 6)) {
+			e->stale = 1;   /* the e1 naming this host goes on until the desk's timeout */
+			e->last_host_us = now_us;
+		}
 		e->in_session = 0;
 		return;
 	case DIGINET_CMD_ACK:
@@ -137,6 +143,8 @@ void emu_tick(struct desk_emu *e, uint64_t now_us)
 {
 	if (e->in_session && now_us - e->last_host_us > e->host_timeout_us)
 		e->in_session = 0;
+	if (e->stale && now_us - e->last_host_us > e->host_timeout_us)
+		e->stale = 0;
 }
 
 size_t emu_pop(struct desk_emu *e, uint8_t *buf, size_t cap)

@@ -18,6 +18,9 @@
  *  7. FOREIGN    never e2 while the desk announces another host's session.
  *  8. SUM        the header sum per the switch, checked by a desk that insists on it.
  *  9. CLOSE      e3 on close.
+ * 10. CONTROL|24 online on the a0 alone; its e0 is no loss.
+ * 11. RETAKE     a restarted host takes its own session back on the desk's e1 naming it, at
+ *                once; an e1 naming another host's closed session never does.
  */
 #include <errno.h>
 
@@ -716,6 +719,63 @@ static void test_control24(void)
 	desk_name = "MAINUNIT";
 }
 
+/* ---- 11 ------------------------------------------------------------------------------ */
+
+/* A host restarted: a fresh session object over the same io, the desk emulator untouched. */
+static void restart_host(void)
+{
+	struct diginet_io io = { .ctx = NULL, .send = io_send, .recv = NULL, .now_us = io_now };
+	CHK(diginet_session_init(S_, &cfg, &io, on_notice, NULL) == DIGINET_OK);
+	nn = 0;
+	ndesk = 0;
+}
+
+/* After the host's e3 a desk keeps announcing e1 naming that host until its own timeout,
+ * about 30 s on a Control|24 (measured 2026-10-29, #33). A restarted host wakes the desk on
+ * the first such e1 and is ONLINE within that announce; it never waits for the e0. */
+static void retake_after_e3(const char *name)
+{
+	desk_name = name;
+	start();
+	E.holds_after_e3 = 1;
+	go_online();
+	CHK(diginet_session_close(S_, now) == DIGINET_OK && E.disconnects == 1 && E.stale);
+	run(2 * S, 10 * MS, NULL);
+	restart_host();
+	next_announce = now + 1 * S;
+	uint64_t t0 = now;
+	run(announce_period, 1 * MS, NULL);
+	CHK(E.wakes == 2 && E.in_session && S_->state == DIGINET_S_ONLINE);
+	int i = find_state(DIGINET_S_ONLINE, DIGINET_R_ONLINE);
+	CHK(i >= 0 && ndesk >= 1 && desk_offsets[0] >= 0);
+	if (i >= 0)
+		CHK(nlog_at[0] == t0 + 1 * S && nlog_at[i] == nlog_at[0]);
+	desk_name = "MAINUNIT";
+}
+
+static void test_retake(void)
+{
+	retake_after_e3("MAINUNIT");
+	retake_after_e3("CNTRL|24");
+
+	/* Another host's session, closed by its e3 and still announced: no e2 while the desk
+	 * names that host, and the session wakes on the e0 after the desk's timeout. */
+	start();
+	E.holds_after_e3 = 1;
+	E.in_session = 1;
+	memcpy(E.session_mac, OTHER_MAC, 6);
+	E.last_host_us = now;
+	uint8_t f[64];
+	struct diginet_header h = { .cmd = DIGINET_CMD_DISCONNECT };
+	int n = diginet_frame_build(f, sizeof f, DESK_MAC, OTHER_MAC, &h, NULL, 0, DIGINET_SUM_BODY);
+	emu_from_host(&E, f, (size_t)n, now);
+	CHK(E.stale);
+	run(25 * S, 10 * MS, NULL);
+	CHK(E.wakes == 0 && S_->state == DIGINET_S_IDLE && S_->foreign && count_kind(DIGINET_N_FOREIGN) >= 3);
+	run(15 * S, 10 * MS, NULL);
+	CHK(!E.stale && E.wakes == 1 && S_->state == DIGINET_S_ONLINE);
+}
+
 int main(void)
 {
 	C24 = diginet_personality_of(DIGINET_DESK_CONTROL24);
@@ -729,6 +789,7 @@ int main(void)
 	test_sum();
 	test_close_and_filters();
 	test_control24();
+	test_retake();
 	if (fails) {
 		fprintf(stderr, "test_transport: %d failure(s)\n", fails);
 		return 1;
