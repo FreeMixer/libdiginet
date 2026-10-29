@@ -15,11 +15,16 @@ cat > "$tmp/consumer.c" <<'C'
 #include <diginet/diginet_codec.h>
 #include <diginet/transport/diginet_io.h>
 #include <diginet/transport/diginet_session.h>
+#include <diginet/transport/diginet_mux.h>
 int main(void)
 {
 	struct diginet_session_config c;
+	struct diginet_mux_config mc;
 	struct diginet_cmd cmd;
 	diginet_session_config_default(&c);
+	diginet_mux_config_default(&mc);
+	if (mc.gone_ms != 30000)
+		return 1;
 	if (diginet_fader_encode(diginet_personality_of(DIGINET_DESK_CONTROL24), 0, 512, &cmd) || cmd.len != 5)
 		return 1;
 	return c.keepalive_ms == 10000 && diginet_sum16(cmd.bytes, cmd.len) == 0x110 ? 0 : 1;

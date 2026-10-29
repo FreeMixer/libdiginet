@@ -16,7 +16,10 @@
  *    sends as outgoing: diginet_packet_recvfrom() skips it (a socket bound to 0x885F gets none);
  *  - diginet_packet_receive_fd() refuses two packet sockets in one message, and closes both;
  *  - the helper's socket comes back when this process's 3 is free and a lower one is too, so
- *    the child's end of the socketpair is born on 3 (posix_spawn's dup2 onto itself).
+ *    the child's end of the socketpair is born on 3 (posix_spawn's dup2 onto itself);
+ *  - the desk mux over that one socket (diginet_mux_io_packet, diginet_mux_poll): a desk
+ *    emulator on dA and another on dB each appear on their own host interface, are attached,
+ *    come online with that interface's MAC as their host, and each gets its own fader only.
  *
  *   tests/test_anyif <path to diginet-packet-helper>
  *
@@ -24,6 +27,7 @@
 #define _GNU_SOURCE
 #include "golden.h"
 #include "netns.h"
+#include "emu_pump.h"
 
 #include <signal.h>
 #include <arpa/inet.h>
@@ -32,6 +36,7 @@
 #include <linux/if_packet.h>
 
 #include <diginet/transport/diginet_io.h>
+#include <diginet/transport/diginet_mux.h>
 
 static const uint8_t DESK_A[6] = { 0x00, 0xa0, 0x7e, 0x24, 0x00, 0x0a };
 static const uint8_t DESK_B[6] = { 0x00, 0xa0, 0x7e, 0x24, 0x00, 0x0b };
@@ -78,6 +83,64 @@ static int desk_hears(int fd, const uint8_t src[6], int ms)
 			return 1;
 	}
 	return 0;
+}
+
+static struct desk_emu EA, EB;
+static struct diginet_mux MUX;
+
+static void mux_notice(void *ctx, const struct diginet_mux_notice *n)
+{
+	(void)ctx;
+	if (n->kind == DIGINET_MUX_N_APPEARED)
+		CHK(diginet_mux_attach(&MUX, n->desk, NULL) == DIGINET_OK);
+}
+
+static void drain(int fd)
+{
+	uint8_t b[DIGINET_MAX_FRAME_LEN];
+	while (recv(fd, b, sizeof b, MSG_DONTWAIT) > 0)
+		;
+}
+
+/* Two desks through one mux over the one socket, on the real clock. */
+static void two_desks(int any, int desk_a, int desk_b, const uint8_t mac_a[6], const uint8_t mac_b[6],
+		      int ha, int hb)
+{
+	drain(desk_a);
+	drain(desk_b);
+	struct diginet_fd_io st;
+	struct diginet_mux_io io;
+	diginet_mux_io_packet(&io, &st, any);
+	CHK(diginet_mux_init(&MUX, NULL, &io, mux_notice, NULL) == DIGINET_OK);
+	emu_init(&EA, DESK_A, "CNTRL|24", "1.08");
+	emu_init(&EB, DESK_B, "MAINUNIT", "1.37");
+	struct diginet_cmd fa, fb;
+	CHK(diginet_fader_encode(diginet_personality_of(DIGINET_DESK_CONTROL24), 0, 100, &fa) == 0);
+	CHK(diginet_fader_encode(diginet_personality_of(DIGINET_DESK_PROCONTROL), 3, 900, &fb) == 0);
+	uint64_t na = 0, nb = 0, t0 = diginet_clock_us();
+	int sent = 0, a = -1, b = -1;
+	while (diginet_clock_us() - t0 < 3000000) {
+		emu_pump_fd(&EA, desk_a, &na, 7000000);
+		emu_pump_fd(&EB, desk_b, &nb, 7000000);
+		CHK(diginet_mux_poll(&MUX, 2) == 0);
+		a = diginet_mux_find(&MUX, DESK_A);
+		b = diginet_mux_find(&MUX, DESK_B);
+		struct diginet_session *sa = a >= 0 ? diginet_mux_session(&MUX, (unsigned)a) : NULL;
+		struct diginet_session *sb = b >= 0 ? diginet_mux_session(&MUX, (unsigned)b) : NULL;
+		if (!sent && sa && sb && sa->state == DIGINET_S_ONLINE && sb->state == DIGINET_S_ONLINE) {
+			CHK(diginet_session_submit(sa, &fa) == 0 && diginet_session_submit(sb, &fb) == 0);
+			sent = 1;
+		}
+		if (sent && emu_count_cmd(&EA, fa.bytes, fa.len) && emu_count_cmd(&EB, fb.bytes, fb.len) &&
+		    !sa->inflight && !sb->inflight)
+			break;
+	}
+	CHK(a >= 0 && b >= 0 && MUX.desks[a].ifindex == ha && MUX.desks[b].ifindex == hb);
+	CHK(sent && EA.wakes == 1 && EB.wakes == 1);
+	CHK(!memcmp(EA.session_mac, mac_a, 6) && !memcmp(EB.session_mac, mac_b, 6));
+	CHK(emu_count_cmd(&EA, fa.bytes, fa.len) == 1 && emu_count_cmd(&EB, fa.bytes, fa.len) == 0);
+	CHK(emu_count_cmd(&EB, fb.bytes, fb.len) == 1 && emu_count_cmd(&EA, fb.bytes, fb.len) == 0);
+	CHK(MUX.stats.rx_other_if == 0 && MUX.stats.appeared == 2);
 }
 
 /* The child that keeps the namespace's capabilities: on a byte from the parent it makes hB/dB,
@@ -265,6 +328,8 @@ int main(int argc, char **argv)
 		close(sv[1]);
 	}
 
+	two_desks(any, desk_a, desk_b, mac_a, mac_b, ha, hb);
+
 	/* sendto's refusals */
 	CHK(diginet_packet_sendto(any, 0, f, (size_t)n) == -EINVAL);
 	CHK(diginet_packet_sendto(any, ha, f, DIGINET_ETH_HDR_LEN - 1) == -EINVAL);
@@ -275,6 +340,6 @@ int main(int argc, char **argv)
 		fprintf(stderr, "test_anyif: %d failure(s)\n", fails);
 		return 1;
 	}
-	printf("test_anyif: ok (the helper's socket, unprivileged, on two veth pairs, one made after it)\n");
+	printf("test_anyif: ok (the helper's socket, unprivileged, on two veth pairs, one made after it; two desks through one mux)\n");
 	return 0;
 }

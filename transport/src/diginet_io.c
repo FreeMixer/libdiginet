@@ -16,6 +16,7 @@
 #include <linux/if_packet.h>
 
 #include <diginet/transport/diginet_io.h>
+#include <diginet/transport/diginet_mux.h>
 
 uint64_t diginet_clock_us(void)
 {
@@ -198,6 +199,35 @@ int diginet_if_mac(int ifindex, uint8_t mac[DIGINET_MAC_LEN])
 	if (r == 0)
 		memcpy(mac, ifr.ifr_hwaddr.sa_data, DIGINET_MAC_LEN);
 	return r;
+}
+
+/* The desk mux's io over an any-interface socket (diginet_mux.h). */
+static int mux_send(void *ctx, int ifindex, const uint8_t *frame, size_t len)
+{
+	struct diginet_fd_io *st = ctx;
+	return diginet_packet_sendto(st->fd, ifindex, frame, len);
+}
+
+static int mux_recv(void *ctx, uint8_t *buf, size_t cap, int *ifindex, int timeout_ms)
+{
+	struct diginet_fd_io *st = ctx;
+	return diginet_packet_recvfrom(st->fd, buf, cap, ifindex, timeout_ms);
+}
+
+static int mux_if_mac(void *ctx, int ifindex, uint8_t mac[DIGINET_MAC_LEN])
+{
+	(void)ctx;
+	return diginet_if_mac(ifindex, mac);
+}
+
+void diginet_mux_io_packet(struct diginet_mux_io *io, struct diginet_fd_io *store, int fd)
+{
+	store->fd = fd;
+	io->ctx = store;
+	io->send = mux_send;
+	io->recv = mux_recv;
+	io->if_mac = mux_if_mac;
+	io->now_us = fd_now;
 }
 
 /* ---- a packet socket handed over a Unix socket ---- */

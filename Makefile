@@ -31,9 +31,9 @@ TABI    := $(shell sed -n 's/^\#define DIGINET_TRANSPORT_ABI  *\([0-9]*\)$$/\1/p
 
 OBJS := src/diginet_frame.o src/diginet_msg.o src/diginet_codec.o src/diginet_decode.o
 
-TOBJS := transport/src/diginet_io.o transport/src/diginet_session.o
+TOBJS := transport/src/diginet_io.o transport/src/diginet_session.o transport/src/diginet_mux.o
 
-TESTS := tests/test_frame tests/test_codec tests/test_transport tests/test_fdio tests/test_packet
+TESTS := tests/test_frame tests/test_codec tests/test_transport tests/test_mux tests/test_fdio tests/test_packet
 
 GOLDEN := tests/golden/frames.txt
 RUN_TEST := tests/run-test.sh
@@ -64,7 +64,7 @@ tests/test_frame: tests/test_frame.c tests/golden.h libdiginet.a
 tests/test_codec: tests/test_codec.c tests/golden.h libdiginet.a
 	$(CC) $(CFLAGS) $(WARN) $(INC) $< libdiginet.a -o $@
 
-tests/test_transport: tests/test_transport.c tests/desk_emu.c tests/desk_emu.h tests/golden.h libdiginet-transport.a libdiginet.a
+tests/test_transport tests/test_mux: tests/%: tests/%.c tests/desk_emu.c tests/desk_emu.h tests/golden.h libdiginet-transport.a libdiginet.a
 	$(CC) $(CFLAGS) $(WARN) $(INC) $< tests/desk_emu.c libdiginet-transport.a libdiginet.a -o $@
 
 tests/test_fdio tests/test_packet: tests/%: tests/%.c tests/desk_emu.c tests/desk_emu.h tests/emu_pump.h tests/golden.h libdiginet-transport.a libdiginet.a
@@ -100,8 +100,8 @@ build/diginet-probe: tools/diginet-probe.c $(TSO) $(SO)
 
 shared: $(SO) $(TSO) build/diginet-probe $(HELPER)
 
-tests/test_anyif: tests/test_anyif.c tests/netns.h tests/golden.h libdiginet-transport.a libdiginet.a
-	$(CC) $(CFLAGS) $(WARN) $(INC) $< libdiginet-transport.a libdiginet.a -o $@
+tests/test_anyif: tests/test_anyif.c tests/netns.h tests/desk_emu.c tests/desk_emu.h tests/emu_pump.h tests/golden.h libdiginet-transport.a libdiginet.a
+	$(CC) $(CFLAGS) $(WARN) $(INC) $< tests/desk_emu.c libdiginet-transport.a libdiginet.a -o $@
 
 tests/test_probe: tests/test_probe.c tests/desk_emu.c tests/desk_emu.h tests/emu_pump.h tests/golden.h libdiginet-transport.a libdiginet.a
 	$(CC) $(CFLAGS) $(WARN) $(INC) $< tests/desk_emu.c libdiginet-transport.a libdiginet.a -o $@
@@ -110,6 +110,7 @@ test: $(TESTS) tests/test_probe tests/test_anyif $(PROBE) $(HELPER)
 	$(RUN_TEST) tests/test_frame $(GOLDEN)
 	$(RUN_TEST) tests/test_codec $(GOLDEN)
 	$(RUN_TEST) tests/test_transport
+	$(RUN_TEST) tests/test_mux
 	$(RUN_TEST) tests/test_fdio $(HELPER)
 	$(RUN_TEST) tests/test_packet
 	$(RUN_TEST) tests/test_anyif $(HELPER)
