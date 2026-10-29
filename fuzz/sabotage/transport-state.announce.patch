@@ -1,16 +1,16 @@
-Breaks the check of fuzz/fuzz_transport.c:561 (a DIGINET_N_DESK notice carries no announce).
+Breaks the check of fuzz/fuzz_transport.c:565 (a DIGINET_N_DESK notice carries no announce).
 Caught by the seed input "online" of fuzz_transport.
 
 diff --git a/transport/src/diginet_session.c b/transport/src/diginet_session.c
-index 72e8c8d..c5e6c1f 100644
+index 575b7e0..e2431f4 100644
 --- a/transport/src/diginet_session.c
 +++ b/transport/src/diginet_session.c
-@@ -194,7 +194,7 @@ static void on_announce(struct diginet_session *s, const struct diginet_frame *f
+@@ -203,7 +203,7 @@ static void on_announce(struct diginet_session *s, const struct diginet_frame *f
  	int off = f->h.cmd == DIGINET_CMD_ANNOUNCE_SESSION ? find_mac(&a, s->cfg.host_mac) : -1;
-
+ 
  	struct diginet_notice n = { .kind = DIGINET_N_DESK, .state = s->state, .frame = f,
 -				    .announce = &a, .personality = p, .mac_offset = off };
 +				    .announce = NULL, .personality = p, .mac_offset = off };
  	s->notify(s->notify_ctx, &n);
-
+ 
  	if (f->h.cmd == DIGINET_CMD_ANNOUNCE) {

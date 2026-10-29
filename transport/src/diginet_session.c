@@ -219,6 +219,8 @@ static void on_announce(struct diginet_session *s, const struct diginet_frame *f
 	if (off >= 0) {
 		s->foreign = 0;
 		s->e1_named_us = 1;
+		if (s->state == DIGINET_S_IDLE && s->cfg.auto_wake)
+			diginet_session_wake(s, now);   /* our own session, still announced: take it */
 		maybe_online(s);
 		return;
 	}

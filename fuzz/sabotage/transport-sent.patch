@@ -1,4 +1,4 @@
-Breaks the check of fuzz/fuzz_transport.c:420 (the queue and the frame builder both stop refusing F0 13 xx 70, so two commands make one).
+Breaks the check of fuzz/fuzz_transport.c:424 (the queue and the frame builder both stop refusing F0 13 xx 70, so two commands make one).
 Caught by the seed input "split-system" of fuzz_transport.
 
 diff --git a/src/diginet_frame.c b/src/diginet_frame.c
@@ -15,10 +15,10 @@ index 5a8a8ea..5ead21d 100644
  	size_t len = DIGINET_BODY_OFFSET + body_len;
  	size_t out = len < DIGINET_MIN_FRAME_LEN ? DIGINET_MIN_FRAME_LEN : len;
 diff --git a/transport/src/diginet_session.c b/transport/src/diginet_session.c
-index 72e8c8d..3d9fd2e 100644
+index 575b7e0..c1982a0 100644
 --- a/transport/src/diginet_session.c
 +++ b/transport/src/diginet_session.c
-@@ -363,7 +363,7 @@ static unsigned take(struct diginet_session *s, uint8_t *body, size_t *body_len,
+@@ -374,7 +374,7 @@ static unsigned take(struct diginet_session *s, uint8_t *body, size_t *body_len,
  			/* Two commands each whole alone can make an F0 13 xx 70 side by side, a body
  			 * the frame builder refuses: such a one waits for a frame of its own. */
  			memcpy(body + len, c->bytes, c->len);

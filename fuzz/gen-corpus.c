@@ -835,6 +835,21 @@ static void transport_seeds(void)
 	t_frame(C_ACK | FROM_DESK | TO_HOST | ACK_LAST, 1, 0, 0, NULL, 0);
 	t_announce(1, 0, 2);
 	emit("transport", "unknown-desk-e1");
+
+	/* a Control|24 that still announces our closed session in e1 (#33): another host's e1 is
+	 * no wake, the e1 naming us is, at once; its a0 brings the session online, and the next
+	 * e1 naming us is no second e2 */
+	config_default(F_AUTO);
+	t_announce(1, 11, 0);
+	t_announce(1, 0, 0);
+	t_frame(C_ACK | FROM_DESK | TO_HOST | ACK_LAST, 1, 0, 0, NULL, 0);
+	t_announce(1, 0, 0);
+	emit("transport", "retake-e1");
+
+	/* without auto_wake the e1 naming us wakes nothing */
+	config_default(0);
+	t_announce(1, 0, 0);
+	emit("transport", "retake-e1-manual");
 }
 
 int main(int argc, char **argv)

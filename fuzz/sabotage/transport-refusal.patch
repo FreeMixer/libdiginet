@@ -1,11 +1,11 @@
-Breaks the check of fuzz/fuzz_transport.c:682 (submit checks all but the last byte of a command).
+Breaks the check of fuzz/fuzz_transport.c:686 (submit checks all but the last byte of a command).
 Caught by the seed input "submit-system-cut-short" of fuzz_transport.
 
 diff --git a/transport/src/diginet_session.c b/transport/src/diginet_session.c
-index 72e8c8d..587a0e8 100644
+index 575b7e0..7b855c1 100644
 --- a/transport/src/diginet_session.c
 +++ b/transport/src/diginet_session.c
-@@ -329,7 +329,7 @@ int diginet_session_submit(struct diginet_session *s, const struct diginet_cmd *
+@@ -340,7 +340,7 @@ int diginet_session_submit(struct diginet_session *s, const struct diginet_cmd *
  {
  	if (!s || !c || !c->len || c->len > DIGINET_CMD_MAX_LEN)
  		return DIGINET_E_ARG;
