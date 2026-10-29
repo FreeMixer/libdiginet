@@ -1,3 +1,27 @@
+libdiginet (0.1.2) unstable; urgency=medium
+
+  * A Control|24 is online on the a0 that answers our e2: it announces its
+    session in e0 after a boot and in e1 once its front panel is used, so the
+    session ends on an e0 only after an e1 named this host, and otherwise on a
+    host frame it stops ACKing (#30).
+  * A restarted host re-takes its own session at the desk's next announce
+    instead of waiting about 30 s for the desk to time out (#33).
+  * One packet socket hears every interface, including interfaces added later;
+    diginet-packet-helper opens it with cap_net_raw and hands it to an
+    unprivileged caller over a Unix socket; the desk mux runs a session per
+    desk with appeared and gone notices; a desk that announces but lets three
+    wakes in a row time out is reported as DIGINET_N_DESK_DEAF; diginet-probe
+    --any drives it (#35).
+  * docs/protocol.md carries what a Control|24 (firmware 1.08) measured on
+    2026-10-29: the ring, the meter, the counter, the scribble addresses, the
+    strip keys, the jog wheel, the motor set-point, a new session blanking the
+    desk, and a burst taken whole (#29).
+  * The fuzz harnesses meet the OSS Verify build contract: every property
+    carries mutant records met on their own seeds, sabotage patches, and a
+    harness for the desk mux (#27, #35).
+
+ -- Pau Aliagas <linuxnow@gmail.com>  Fri, 30 Oct 2026 00:55:38 +0100
+
 libdiginet (0.1.1) unstable; urgency=medium
 
   * A failed send in diginet_session_wake() no longer overwrites the data
