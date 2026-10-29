@@ -20,7 +20,13 @@
  *     queued one in place, so no stale value is ever sent;
  *   - frames hold at most max_cmds commands and max_body bytes, and a frame holding display
  *     writes follows the previous one by at least display_gap_us;
- *   - e2 is never sent while the desk announces a session with another host.
+ *   - e2 is never sent while the desk announces a session with another host;
+ *   - a desk that lets deaf_wakes wakes in a row time out, each while it still announces (an
+ *     announce within offline_ms), is reported deaf (DIGINET_N_DESK_DEAF), once per such run;
+ *     an a0 for an e2, an e1 naming another host, or a timeout with no recent announce ends the
+ *     run. A Control|24 that booted with large broadcasts on its link answers no host until it
+ *     is power-cycled on a quiet one (docs/protocol.md, "Discovery and handshake"); unlike a
+ *     foreign session, nothing on the wire names the cause.
  *
  * The session is a state machine over caller time: diginet_session_rx() takes each frame,
  * diginet_session_tick() runs the timers, diginet_session_poll() does both over its io. No
@@ -73,6 +79,7 @@ struct diginet_session_config {
 	uint32_t display_gap_us;        /* 2000 */
 	uint32_t max_cmds;              /* 48 */
 	uint32_t max_body;              /* 314 */
+	uint32_t deaf_wakes;            /* 3; 0: never report a deaf desk */
 };
 
 void diginet_session_config_default(struct diginet_session_config *c);
@@ -84,6 +91,8 @@ enum diginet_notice_kind {
 	DIGINET_N_ACKED,     /* the desk ACKed host frame `counter` */
 	DIGINET_N_ACK_LOST,  /* host frame `counter` dropped after max_retries */
 	DIGINET_N_FOREIGN,   /* an e1 that does not name this host */
+	DIGINET_N_DESK_DEAF, /* the deaf_wakes-th wake in a row timed out while the desk still
+			      * announced: counter is that count */
 };
 
 struct diginet_notice {
@@ -124,6 +133,9 @@ struct diginet_session {
 	int e1_named_us;          /* since the last e2 */
 	int wake_acked;           /* since the last e2 */
 	uint64_t wake_sent_us;
+	uint32_t deaf_count;      /* wakes timed out in a row while the desk announced */
+	int announce_seen;
+	uint64_t last_announce_us;
 
 	uint32_t host_counter;
 	uint32_t desk_counter;    /* the last desk data counter delivered */

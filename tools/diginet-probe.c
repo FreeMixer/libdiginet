@@ -171,6 +171,10 @@ static void on_notice(void *ctx, const struct diginet_notice *n)
 			say("desk is in a session with another host: not waking it");
 		R.foreign = 1;
 		break;
+	case DIGINET_N_DESK_DEAF:
+		say("desk announces but let %u wakes in a row time out: it likely booted with large "
+		    "broadcasts on its link; power-cycle it with the link quiet", n->counter);
+		break;
 	case DIGINET_N_STATE:
 		say("session %s -> %s (%s)", diginet_state_name(n->old_state), diginet_state_name(n->state),
 		    diginet_reason_name(n->reason));

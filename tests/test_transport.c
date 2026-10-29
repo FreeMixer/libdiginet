@@ -21,6 +21,8 @@
  * 10. CONTROL|24 online on the a0 alone; its e0 is no loss.
  * 11. RETAKE     a restarted host takes its own session back on the desk's e1 naming it, at
  *                once; an e1 naming another host's closed session never does.
+ * 12. DEAF       a desk that keeps announcing but lets three wakes in a row time out is
+ *                reported deaf, once; an a0, another host's e1 or a silent desk ends the run.
  */
 #include <errno.h>
 
@@ -776,6 +778,128 @@ static void test_retake(void)
 	CHK(!E.stale && E.wakes == 1 && S_->state == DIGINET_S_ONLINE);
 }
 
+/* ---- 12 ------------------------------------------------------------------------------ */
+
+static int deaf_at(int nth)
+{
+	for (int i = 0; i < nn; i++)
+		if (nlog[i].kind == DIGINET_N_DESK_DEAF && nth-- == 0)
+			return i;
+	return -1;
+}
+
+/* The e2 frames the desk got, retransmissions not counted. */
+static unsigned wakes(void)
+{
+	unsigned n = 0;
+	for (unsigned i = 0; i < E.nlog; i++)
+		n += E.log[i].cmd == DIGINET_CMD_WAKE && !E.log[i].retry;
+	return n;
+}
+
+static void manual(struct diginet_session_config *c) { c->auto_wake = 0; }
+static void never_deaf(struct diginet_session_config *c) { c->deaf_wakes = 0; }
+
+/* A Control|24 booted with large broadcasts on its link: it announces e0 every 7 s and lets
+ * every e2 go unanswered (docs/protocol.md, "Discovery and handshake"; #29). */
+static void test_deaf(void)
+{
+	desk_name = "CNTRL|24";
+	start();
+	E.ack_wake = 0;
+	/* wakes at the announces of 0, 7 and 14 s, each timed out 3 s later: deaf at the third */
+	run(16 * S, 10 * MS, NULL);
+	CHK(wakes() == 3 && deaf_at(0) < 0);
+	run(2 * S, 10 * MS, NULL);
+	int i = deaf_at(0);
+	CHK(i > 0 && nlog[i].counter == 3 && nlog[i].state == DIGINET_S_IDLE);
+	CHK(i > 0 && nlog[i - 1].kind == DIGINET_N_STATE && nlog[i - 1].reason == DIGINET_R_WAKE_TIMEOUT);
+	CHK(i > 0 && nlog_at[i] == 1017 * S + 10 * MS);
+	CHK(count_kind(DIGINET_N_FOREIGN) == 0 && find_state(DIGINET_S_ONLINE, DIGINET_R_ONLINE) < 0);
+	/* once per run: the wakes go on, the notice does not come again */
+	run(30 * S, 10 * MS, NULL);
+	CHK(wakes() >= 7 && count_kind(DIGINET_N_DESK_DEAF) == 1);
+
+	/* Power-cycled on a quiet link it answers: the next wake takes it. A run that starts again
+	 * later needs three timeouts of its own. */
+	E.ack_wake = 1;
+	run(8 * S, 10 * MS, NULL);
+	CHK(S_->state == DIGINET_S_ONLINE && S_->deaf_count == 0);
+	emu_drop_session(&E);
+	E.ack_wake = 0;
+	nn = 0;
+	run(30 * S, 10 * MS, NULL);   /* the session is lost on its unACKed keepalive, then deaf again */
+	CHK(find_state(DIGINET_S_IDLE, DIGINET_R_ACK_LOST) >= 0 && count_kind(DIGINET_N_DESK_DEAF) == 1);
+	i = deaf_at(0);
+	CHK(i >= 0 && nlog[i].counter == 3);
+
+	/* Two timeouts, then an a0: the run is over, three more are needed. */
+	start();
+	E.ack_wake = 0;
+	run(11 * S, 10 * MS, NULL);
+	CHK(wakes() == 2 && S_->deaf_count == 2);
+	E.ack_wake = 1;
+	run(4 * S, 10 * MS, NULL);
+	CHK(S_->state == DIGINET_S_ONLINE && S_->deaf_count == 0);
+
+	/* Two timeouts, then an e1 naming another host: that desk hears hosts. */
+	start();
+	E.ack_wake = 0;
+	run(11 * S, 10 * MS, NULL);
+	CHK(S_->deaf_count == 2);
+	E.foreign = 1;
+	memcpy(E.session_mac, OTHER_MAC, 6);
+	run(7 * S, 10 * MS, NULL);
+	CHK(count_kind(DIGINET_N_FOREIGN) >= 1 && S_->deaf_count == 0);
+	E.foreign = 0;
+	run(14 * S, 10 * MS, NULL);
+	CHK(count_kind(DIGINET_N_DESK_DEAF) == 0 && S_->deaf_count == 2);
+	run(7 * S, 10 * MS, NULL);
+	CHK(count_kind(DIGINET_N_DESK_DEAF) == 1);
+
+	/* Woken by hand: the same rule, the desk's announces counting while they are recent. */
+	start_with(manual);
+	E.ack_wake = 0;
+	run(10 * MS, 1 * MS, NULL);
+	for (int k = 0; k < 3; k++) {
+		CHK(diginet_session_wake(S_, now) == 0);
+		run(3 * S, 10 * MS, NULL);
+	}
+	CHK(count_kind(DIGINET_N_DESK_DEAF) == 1 && wakes() == 3);
+
+	/* A desk that went silent is gone, not deaf: a timeout when its last announce is older
+	 * than offline_ms ends the run, and one that announces again starts from nothing. */
+	start_with(manual);
+	E.ack_wake = 0;
+	run(10 * MS, 1 * MS, NULL);
+	for (int k = 0; k < 2; k++) {
+		CHK(diginet_session_wake(S_, now) == 0);
+		run(3 * S, 10 * MS, NULL);
+	}
+	CHK(S_->deaf_count == 2);
+	E.mute = 1;
+	run(cfg.offline_ms * MS, 10 * MS, NULL);
+	CHK(diginet_session_wake(S_, now) == 0);
+	run(3 * S, 10 * MS, NULL);
+	CHK(S_->deaf_count == 0);
+	E.mute = 0;
+	run(7 * S, 10 * MS, NULL);
+	CHK(diginet_session_wake(S_, now) == 0);
+	run(3 * S, 10 * MS, NULL);
+	CHK(count_kind(DIGINET_N_DESK_DEAF) == 0 && S_->deaf_count == 1);
+
+	/* deaf_wakes 0: never reported, a timeout of a silent desk included. */
+	start_with(never_deaf);
+	E.ack_wake = 0;
+	run(60 * S, 10 * MS, NULL);
+	E.mute = 1;
+	run(cfg.offline_ms * MS, 10 * MS, NULL);
+	CHK(diginet_session_wake(S_, now) == 0);
+	run(3 * S, 10 * MS, NULL);
+	CHK(wakes() >= 9 && count_kind(DIGINET_N_DESK_DEAF) == 0);
+	desk_name = "MAINUNIT";
+}
+
 int main(void)
 {
 	C24 = diginet_personality_of(DIGINET_DESK_CONTROL24);
@@ -790,6 +914,7 @@ int main(void)
 	test_close_and_filters();
 	test_control24();
 	test_retake();
+	test_deaf();
 	if (fails) {
 		fprintf(stderr, "test_transport: %d failure(s)\n", fails);
 		return 1;
