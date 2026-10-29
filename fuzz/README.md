@@ -64,7 +64,7 @@ named seed, requires exit 134 from the record's own check, and puts the file bac
 seed must exit 0 on the unchanged tree. The count of records met is the proof:
 
 ```
-make fuzz-records: all 148 records and 21 patches met, each by its own check on its own seed (103 checks)
+make fuzz-records: all 158 records and 22 patches met, each by its own check on its own seed (106 checks)
 ```
 
 | Harness | Checks | Records | Sabotage patches |
@@ -72,7 +72,7 @@ make fuzz-records: all 148 records and 21 patches met, each by its own check on 
 | frame | 23 | 29 | 4 |
 | decode | 23 | 33 | 3 |
 | codec | 17 | 27 | 6 |
-| transport | 40 | 59 | 8 |
+| transport | 43 | 69 | 9 |
 
 ### What each harness checks
 
@@ -96,7 +96,9 @@ happens, and the state, the timers and the queue after it. Its properties: every
 the grammar's, to the known desk, padded, with the sum its mode asks and no system family; every
 desk data frame ACKed once with its counter; one frame in flight, retransmitted never early, never
 past `max_retries`, always once due; ONLINE only after the a0 and an e1 naming this host; an e2
-exactly when the host wakes and never into another host's session; the keepalive on its own
+exactly when the host wakes and never into another host's session; a desk that announces but
+lets `deaf_wakes` wakes in a row time out reported once, at that wake, with that count, and
+never after an a0, another host's e1 or a timeout with no recent announce; the keepalive on its own
 clock, never early, never skipped; frames within `max_cmds` and `max_body`, their count and
 counter right, display writes paced; the queue exactly the pending commands, latest in place,
 and a command that may go gone after each tick; a command holding F0 13 xx 70 refused. Each

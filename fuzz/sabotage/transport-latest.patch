@@ -1,4 +1,4 @@
-Breaks the check of fuzz/fuzz_transport.c:857 (a newer command takes the queued one's key but not its bytes).
+Breaks the check of fuzz/fuzz_transport.c:914 (a newer command takes the queued one's key but not its bytes).
 Caught by the seed input "coalesce" of fuzz_transport.
 
 diff --git a/transport/src/diginet_session.c b/transport/src/diginet_session.c

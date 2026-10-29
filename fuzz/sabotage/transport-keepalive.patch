@@ -1,4 +1,4 @@
-Breaks the check of fuzz/fuzz_transport.c:601 (a keepalive goes 5 ms before it is due).
+Breaks the check of fuzz/fuzz_transport.c:648 (a keepalive goes 5 ms before it is due).
 Caught by the seed input "keepalive-clock" of fuzz_transport.
 
 diff --git a/transport/src/diginet_session.c b/transport/src/diginet_session.c

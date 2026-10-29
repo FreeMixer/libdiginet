@@ -850,6 +850,71 @@ static void transport_seeds(void)
 	config_default(0);
 	t_announce(1, 0, 0);
 	emit("transport", "retake-e1-manual");
+
+	/* A deaf Control|24 (#35): it announces and lets every e2 time out. Deaf at the third
+	 * timeout, each 100 ms after an announce, within offline_ms (500); not again at the fourth. */
+	config(F_AUTO, 0, 100, 60000, 0, 500, 100, 0, 48, 314);
+	for (int i = 0; i < 4; i++) {
+		t_announce(0, 13, 0);
+		t_time(MSEC, 100);
+	}
+	emit("transport", "deaf");
+
+	/* two timeouts, an a0 for the third e2 (online), the desk's e3, then one timeout: one,
+	 * not three */
+	config(F_AUTO, 0, 100, 60000, 0, 500, 100, 0, 48, 314);
+	for (int i = 0; i < 2; i++) {
+		t_announce(0, 13, 0);
+		t_time(MSEC, 100);
+	}
+	t_announce(0, 13, 0);
+	t_frame(C_ACK | FROM_DESK | TO_HOST | ACK_LAST, 1, 0, 0, NULL, 0);
+	t_frame(C_E3 | FROM_DESK | TO_HOST, 2, 0, 0, NULL, 0);
+	t_announce(0, 13, 0);
+	t_time(MSEC, 100);
+	emit("transport", "deaf-reset-ack");
+
+	/* two timeouts, an e1 naming another host, then one timeout after its e0 */
+	config(F_AUTO, 0, 100, 60000, 0, 500, 100, 0, 48, 314);
+	for (int i = 0; i < 2; i++) {
+		t_announce(0, 13, 0);
+		t_time(MSEC, 100);
+	}
+	t_announce(1, 10, 0);
+	t_announce(0, 13, 0);
+	t_time(MSEC, 100);
+	emit("transport", "deaf-foreign");
+
+	/* two timeouts, a second of silence, a wake by hand that times out with no recent
+	 * announce, then one more timeout after an announce: the run started again */
+	config(F_AUTO, 0, 100, 60000, 0, 500, 100, 0, 48, 314);
+	for (int i = 0; i < 2; i++) {
+		t_announce(0, 13, 0);
+		t_time(MSEC, 100);
+	}
+	t_time(SEC, 1);
+	put8(T_WAKE);
+	t_time(MSEC, 100);
+	t_announce(0, 13, 0);
+	t_time(MSEC, 100);
+	emit("transport", "deaf-silent");
+
+	/* each timeout exactly offline_ms after the announce: not announcing, never deaf */
+	config(F_AUTO, 0, 100, 60000, 0, 100, 100, 0, 48, 314);
+	for (int i = 0; i < 3; i++) {
+		t_announce(0, 13, 0);
+		t_time(MSEC, 100);
+	}
+	emit("transport", "deaf-window-exact");
+
+	/* deaf_wakes 0 (flags bits 4-5 = 3): a wake by hand that times out on a silent desk is
+	 * no report */
+	config(3 << 4, 0, 100, 60000, 0, 500, 100, 0, 48, 314);
+	t_announce(0, 13, 0);
+	t_time(SEC, 1);
+	put8(T_WAKE);
+	t_time(MSEC, 100);
+	emit("transport", "deaf-off");
 }
 
 int main(int argc, char **argv)

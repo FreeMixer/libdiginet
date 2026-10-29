@@ -1,4 +1,4 @@
-Breaks the check of fuzz/fuzz_transport.c:484 (one retransmission past max_retries).
+Breaks the check of fuzz/fuzz_transport.c:503 (one retransmission past max_retries).
 Caught by the seed input "wake-unanswered" of fuzz_transport.
 
 diff --git a/transport/src/diginet_session.c b/transport/src/diginet_session.c
