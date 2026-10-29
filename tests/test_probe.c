@@ -14,7 +14,8 @@
  *  C. a desk in another host's session: nothing sent, exit 3;
  *  D. --touch-test: 25 %, no echo while the cap is held, the motion after release reported;
  *  E. --keepalive stretched past the desk's timeout: the fall back to e0 is reported;
- *  F. no desk: exit 4; bad usage: exit 2.
+ *  F. no desk: exit 4; bad usage: exit 2, --any with another wire or --mac, --helper without
+ *     --any, a helper that is not there.
  */
 #include "golden.h"
 #include "emu_pump.h"
@@ -283,8 +284,19 @@ static void test_refusals(void)
 	CHK(run_probe(nomac, "", NULL) == 2);
 	const char *badsum[] = { "--fd", "3", "--mac", HOST, "--checksum", "crc", NULL };
 	CHK(run_probe(badsum, "", NULL) == 2);
+	const char *anyif[] = { "--any", "-i", "lo", NULL };
+	CHK(run_probe(anyif, "", NULL) == 2);
+	const char *anyfd[] = { "--any", "--fd", "3", "--mac", HOST, NULL };
+	CHK(run_probe(anyfd, "", NULL) == 2);
+	const char *anymac[] = { "--any", "--mac", HOST, NULL };
+	CHK(run_probe(anymac, "", NULL) == 2);
+	const char *helperonly[] = { "--fd", "3", "--mac", HOST, "--wait", "1", "--helper", "/bin/true", NULL };
+	CHK(run_probe(helperonly, "", NULL) == 2);
+	/* a helper that passes no socket: the probe says so and stops */
+	const char *nohelper[] = { "--any", "--helper", "/nonexistent/diginet-packet-helper", NULL };
+	CHK(run_probe(nohelper, "", NULL) == 2 && has("no socket from /nonexistent/diginet-packet-helper"));
 	const char *help[] = { "--help", NULL };
-	CHK(run_probe(help, "", NULL) == 0 && has("sudo setcap cap_net_raw=ep"));
+	CHK(run_probe(help, "", NULL) == 0 && has("sudo setcap cap_net_raw=ep") && has("--any"));
 }
 
 int main(int argc, char **argv)

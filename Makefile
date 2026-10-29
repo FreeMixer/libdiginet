@@ -113,7 +113,7 @@ test: $(TESTS) tests/test_probe tests/test_anyif $(PROBE) $(HELPER)
 	$(RUN_TEST) tests/test_mux
 	$(RUN_TEST) tests/test_fdio $(HELPER)
 	$(RUN_TEST) tests/test_packet
-	$(RUN_TEST) tests/test_anyif $(HELPER)
+	$(RUN_TEST) tests/test_anyif $(HELPER) $(PROBE)
 	$(RUN_TEST) tests/test_probe $(PROBE)
 	$(RUN_TEST) tests/test_install.sh
 	$(RUN_TEST) tests/conformance-packaging.sh

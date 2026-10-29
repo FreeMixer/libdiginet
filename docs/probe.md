@@ -53,8 +53,31 @@ It ends with a summary, one line per open question it can answer.
 | `--listen <s>` | How long step 8 lasts (60 s) |
 | `--desk <mac>` | Talk only to this desk |
 | `--fd <n> --mac <mac>` | Use an already open descriptor instead of `-i` (a launcher that holds the capability, or the test suite) |
+| `--any` | Every interface at once, in place of `-i`: one socket bound to no interface, the steps run with the first desk that appears (or `--desk`), from the MAC of its interface. Every desk that appears or goes is logged with its interface. Without `cap_net_raw` the socket comes from `diginet-packet-helper` |
+| `--helper <path>` | With `--any`, always take the socket from this helper |
 
 Exit status: 0 when every step was acknowledged; 2 for a usage error; 3 when the desk is in
 another host's session; 4 when no desk answered; 5 when the desk did not ACK our data.
 
 `setcap` has to be repeated after every rebuild: a new binary carries no capability.
+
+## Every interface, with no capability (`--any`)
+
+`diginet-probe --any` needs no interface name. It opens one packet socket bound to no
+interface, so it hears a desk on any NIC, a NIC plugged in after it started included, and talks
+to the desk from the MAC of the interface the desk appeared on. Where the probe holds no
+`cap_net_raw`, the socket comes from `diginet-packet-helper` (installed with that capability by
+the packages, or `sudo setcap cap_net_raw=ep ./tools/diginet-packet-helper` in the tree), and
+the probe says so:
+
+```
+./tools/diginet-probe --any --helper ./tools/diginet-packet-helper --listen 60
+```
+
+It logs `desk <mac> appeared on <if>` for every desk it hears and `desk <mac> gone from <if>`
+when one falls silent for 30 s, and ends with `SUMMARY any interface: desks appeared on ...`.
+To see that an interface added later is heard: start the probe with the desk unplugged, plug
+in the USB NIC, then cable the desk to it; the desk appears on the new interface.
+
+Which interface the desk is on is the probe's to report, not to choose: the socket hears
+EtherType 0x885F on every interface, a REAC link included.

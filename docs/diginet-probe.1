@@ -15,6 +15,12 @@ diginet-probe \- first test of a Digidesign Control|24 or ProControl surface
 .B \-\-mac
 .I mac
 .RI [ options ]
+.br
+.B diginet-probe
+.B \-\-any
+.RB [ \-\-helper
+.IR path ]
+.RI [ options ]
 .SH DESCRIPTION
 .B diginet-probe
 wakes the desk cabled to
@@ -47,6 +53,22 @@ instead of opening a socket; it must carry whole Ethernet frames.
 This host's MAC address, with
 .BR \-\-fd .
 .TP
+.B \-\-any
+Listen on every interface at once, through one packet socket bound to no interface, and run
+the steps with the first desk that appears on any of them (or the one
+.B \-\-desk
+names), from the MAC of the interface it appeared on. Every desk that appears or goes is
+logged with its interface, also one on an interface plugged in after the start. Without
+.B cap_net_raw
+the socket is taken from
+.BR diginet-packet-helper (1).
+.TP
+.BI \-\-helper " path"
+With
+.BR \-\-any ,
+always take the socket from the helper at
+.IR path .
+.TP
 .BI \-\-desk " mac"
 Talk to this desk only.
 .TP
@@ -75,6 +97,7 @@ Print the usage.
 0 every step was acknowledged; 2 usage error; 3 the desk is in another host's session and
 nothing was sent; 4 no desk answered; 5 the desk did not acknowledge our data.
 .SH SEE ALSO
+.BR diginet-packet-helper (1),
 .BR setcap (8),
 .BR getcap (8),
 .BR tcpdump (8)

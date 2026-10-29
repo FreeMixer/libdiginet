@@ -19,9 +19,11 @@
  *    the child's end of the socketpair is born on 3 (posix_spawn's dup2 onto itself);
  *  - the desk mux over that one socket (diginet_mux_io_packet, diginet_mux_poll): a desk
  *    emulator on dA and another on dB each appear on their own host interface, are attached,
- *    come online with that interface's MAC as their host, and each gets its own fader only.
+ *    come online with that interface's MAC as their host, and each gets its own fader only;
+ *  - diginet-probe --any --helper: the probe takes its socket from the helper, hears both
+ *    desks, runs its steps with the first one from hA's MAC, and names both interfaces.
  *
- *   tests/test_anyif <path to diginet-packet-helper>
+ *   tests/test_anyif <path to diginet-packet-helper> <path to diginet-probe>
  *
  * Exits 77 where unprivileged user and network namespaces are not allowed: nothing was tested. */
 #define _GNU_SOURCE
@@ -30,6 +32,7 @@
 #include "emu_pump.h"
 
 #include <signal.h>
+#include <time.h>
 #include <arpa/inet.h>
 #include <sys/wait.h>
 #include <linux/if_ether.h>
@@ -143,6 +146,70 @@ static void two_desks(int any, int desk_a, int desk_b, const uint8_t mac_a[6], c
 	CHK(MUX.stats.rx_other_if == 0 && MUX.stats.appeared == 2);
 }
 
+/* diginet-probe --any, taking its socket from the helper, against the two desks. */
+static void probe_any(const char *helper, const char *probe, int desk_a, int desk_b, const uint8_t mac_a[6])
+{
+	static char out[1 << 16];
+	size_t outlen = 0;
+	int po[2];
+	drain(desk_a);
+	drain(desk_b);
+	emu_init(&EA, DESK_A, "CNTRL|24", "1.08");
+	emu_init(&EB, DESK_B, "MAINUNIT", "1.37");
+	CHK(pipe(po) == 0);
+	pid_t pid = fork();
+	if (pid == 0) {
+		int nul = open("/dev/null", O_RDONLY);
+		dup2(nul, 0);
+		dup2(po[1], 1);
+		dup2(po[1], 2);
+		for (int fd = 3; fd < 64; fd++)
+			close(fd);
+		execl(probe, probe, "--any", "--helper", helper, "--listen", "1", "--wait", "5", "--answer", "0",
+		      "--keepalive", "1", (char *)NULL);
+		_exit(127);
+	}
+	close(po[1]);
+	fcntl(po[0], F_SETFL, O_NONBLOCK);
+	/* the desks first announce once the probe listens: desk A, then desk B */
+	uint64_t t0 = diginet_clock_us(), na = t0 + 1000000, nb = t0 + 1300000;
+	int st = -1;
+	for (;;) {
+		ssize_t k;
+		while ((k = read(po[0], out + outlen, sizeof out - 1 - outlen)) > 0)
+			outlen += (size_t)k;
+		out[outlen] = '\0';
+		emu_pump_fd(&EA, desk_a, &na, 500000);
+		emu_pump_fd(&EB, desk_b, &nb, 500000);
+		if (waitpid(pid, &st, WNOHANG) == pid)
+			break;
+		if (diginet_clock_us() - t0 > 30000000) {
+			kill(pid, SIGKILL);
+			waitpid(pid, &st, 0);
+			break;
+		}
+		struct timespec ts = { 0, 1000000 };
+		nanosleep(&ts, NULL);
+	}
+	ssize_t k;
+	while ((k = read(po[0], out + outlen, sizeof out - 1 - outlen)) > 0)
+		outlen += (size_t)k;
+	out[outlen] = '\0';
+	close(po[0]);
+	char host[64];
+	snprintf(host, sizeof host, "attached: host %02x:%02x:%02x:%02x:%02x:%02x on hA", mac_a[0], mac_a[1],
+		 mac_a[2], mac_a[3], mac_a[4], mac_a[5]);
+	CHK(WIFEXITED(st) && WEXITSTATUS(st) == 0);
+	CHK(strstr(out, "the socket came from"));
+	CHK(strstr(out, "desk 00:a0:7e:24:00:0a appeared on hA") && strstr(out, "desk 00:a0:7e:24:00:0b appeared on hB"));
+	CHK(strstr(out, host));
+	CHK(strstr(out, "step 5: fader 1 to mid-travel: sent b0 00 40 20 00, ACKed"));
+	CHK(strstr(out, "SUMMARY any interface: desks appeared on hA hB"));
+	CHK(EA.wakes == 1 && EA.disconnects == 1 && EB.wakes == 0 && EB.nlog == 0);
+	if (fails)
+		fprintf(stderr, "--- diginet-probe --any said:\n%s---\n", out);
+}
+
 /* The child that keeps the namespace's capabilities: on a byte from the parent it makes hB/dB,
  * opens a packet socket on dB and passes it back. */
 static void admin(int ch)
@@ -159,8 +226,8 @@ static void admin(int ch)
 
 int main(int argc, char **argv)
 {
-	if (argc != 2) {
-		fprintf(stderr, "usage: test_anyif <diginet-packet-helper>\n");
+	if (argc != 3) {
+		fprintf(stderr, "usage: test_anyif <diginet-packet-helper> <diginet-probe>\n");
 		return 2;
 	}
 	if (ns_enter() < 0) {
@@ -329,6 +396,7 @@ int main(int argc, char **argv)
 	}
 
 	two_desks(any, desk_a, desk_b, mac_a, mac_b, ha, hb);
+	probe_any(argv[1], argv[2], desk_a, desk_b, mac_a);
 
 	/* sendto's refusals */
 	CHK(diginet_packet_sendto(any, 0, f, (size_t)n) == -EINVAL);
@@ -340,6 +408,6 @@ int main(int argc, char **argv)
 		fprintf(stderr, "test_anyif: %d failure(s)\n", fails);
 		return 1;
 	}
-	printf("test_anyif: ok (the helper's socket, unprivileged, on two veth pairs, one made after it; two desks through one mux)\n");
+	printf("test_anyif: ok (the helper's socket, unprivileged, on two veth pairs, one made after it; two desks through one mux; diginet-probe --any)\n");
 	return 0;
 }
