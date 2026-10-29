@@ -56,6 +56,10 @@ funcs() {
 		find_mac maybe_online on_announce on_ack on_data diginet_session_rx coalescable \
 		diginet_session_submit take send_data retransmit diginet_session_tick min64 \
 		diginet_session_deadline diginet_session_poll ;;
+	mux) echo transport/src/diginet_mux.c :: \
+		diginet_mux_config_default diginet_mux_init ms notify_desk desk_send desk_now desk_notice \
+		diginet_mux_find diginet_mux_attach diginet_mux_detach diginet_mux_session diginet_mux_rx \
+		gone diginet_mux_tick min64 diginet_mux_deadline diginet_mux_poll ;;
 	*) echo "coverage.sh: no function list for harness '$1'" >&2; exit 2 ;;
 	esac
 }

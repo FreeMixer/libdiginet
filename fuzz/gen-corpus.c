@@ -917,6 +917,158 @@ static void transport_seeds(void)
 	emit("transport", "deaf-off");
 }
 
+/* ---- fuzz_mux: the desk mux ---- */
+
+enum { M_ANN = 0, M_FRAME, M_RAW, M_TIME, M_ATTACH, M_DETACH, M_SUBMIT, M_POLL };
+enum { K_E1 = 1, K_C24 = 0, K_PC = 2, K_OTHER = 4, K_NAMES_US = 8, K_SHORT = 16 };
+enum { MS_DATA = 0, MS_ACK = 1, MS_E3 = 5, MS_BCAST = 8, MS_ACK_LAST = 0x80 };
+
+/* the config, in the harness's units */
+static void mux_config(unsigned flags, unsigned gone_ms, unsigned offline_ms, unsigned wake_ms)
+{
+	put8(flags);
+	put16(gone_ms - 1);
+	put16(offline_ms - 1);
+	put16(wake_ms - 1);
+}
+
+/* `ifx` is the interface itself, 1..3 */
+static void m_ann(unsigned who, unsigned ifx, unsigned kind)
+{
+	put8(M_ANN);
+	put8(who);
+	put8(ifx - 1);
+	put8(kind);
+}
+
+static void m_frame(unsigned who, unsigned ifx, unsigned sel, unsigned send, const uint8_t *b, size_t n)
+{
+	put8(M_FRAME);
+	put8(who);
+	put8(ifx - 1);
+	put8(sel);
+	put16(send);
+	put_rec(b, n);
+}
+
+static void m_time(unsigned scale, unsigned n)
+{
+	put8(M_TIME);
+	put8(scale);
+	put16(n);
+}
+
+static void m_op(unsigned op, unsigned slot)
+{
+	put8(op);
+	put8(slot);
+}
+
+static void mux_seeds(void)
+{
+	static const uint8_t junk[10] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
+	uint8_t f[DIGINET_MAX_FRAME_LEN], body[DIGINET_ANNOUNCE_BODY_LEN];
+
+	/* two desks on interfaces 1 and 2, each attached as it appears: a Control|24 online on its
+	 * a0, a ProControl on its a0 and the e1 naming this host; a key from each, a fader to
+	 * each, an announce again, time */
+	mux_config(1, 30000, 25000, 3000);
+	m_ann(0, 1, K_C24);
+	m_frame(0, 1, MS_ACK | MS_ACK_LAST, 1, NULL, 0);
+	m_ann(1, 2, K_PC);
+	m_frame(1, 2, MS_ACK | MS_ACK_LAST, 1, NULL, 0);
+	m_ann(1, 2, K_PC | K_E1 | K_NAMES_US);
+	m_frame(0, 1, MS_DATA, 0x40, MUTE, sizeof MUTE);
+	m_frame(1, 2, MS_DATA, 0x40, MUTE, sizeof MUTE);
+	m_op(M_SUBMIT, 0);
+	m_op(M_SUBMIT, 1);
+	m_frame(0, 1, MS_ACK | MS_ACK_LAST, 2, NULL, 0);
+	m_frame(1, 2, MS_ACK | MS_ACK_LAST, 2, NULL, 0);
+	m_time(MSEC, 10);
+	m_ann(0, 1, K_C24);
+	emit("mux", "two-desks");
+
+	/* the same desk heard on another interface: set aside */
+	mux_config(1, 30000, 25000, 3000);
+	m_ann(0, 1, K_C24);
+	m_ann(0, 2, K_C24);
+	m_frame(0, 2, MS_DATA, 0x40, MUTE, sizeof MUTE);
+	emit("mux", "pinned");
+
+	/* attached in its APPEARED notice: the announce is its session's first frame */
+	mux_config(1, 30000, 25000, 3000);
+	m_ann(0, 1, K_C24);
+	emit("mux", "auto-attach");
+
+	/* nothing appears: an announce from a MAC that is no Digidesign's, a data frame from a desk
+	 * that never announced, a frame of no grammar, an announce one byte short */
+	mux_config(1, 30000, 25000, 3000);
+	m_ann(9, 1, K_C24);
+	m_frame(2, 1, MS_DATA, 0x40, MUTE, sizeof MUTE);
+	put8(M_RAW);
+	put8(0);
+	put_rec(junk, sizeof junk);
+	m_ann(3, 1, K_C24 | K_SHORT);
+	emit("mux", "set-aside");
+
+	/* gone exactly gone_ms (500) after its last frame; the next desk takes the lowest slot */
+	mux_config(0, 500, 25000, 3000);
+	m_ann(0, 1, K_C24);
+	m_time(MSEC, 499);
+	m_time(MSEC, 1);
+	m_ann(1, 1, K_OTHER);
+	emit("mux", "gone-exact");
+
+	/* an attached ProControl online, then silent: its session ends at offline_ms (100), and
+	 * it is gone with it, long before gone_ms */
+	mux_config(1, 30000, 100, 3000);
+	m_ann(0, 1, K_PC);
+	m_frame(0, 1, MS_ACK | MS_ACK_LAST, 1, NULL, 0);
+	m_ann(0, 1, K_PC | K_E1 | K_NAMES_US);
+	m_time(MSEC, 50);
+	m_time(MSEC, 50);
+	emit("mux", "gone-silence");
+
+	/* nine desks, eight slots */
+	mux_config(0, 30000, 25000, 3000);
+	for (unsigned who = 0; who < 9; who++)
+		m_ann(who, 1, K_C24);
+	emit("mux", "table-full");
+
+	/* attach: an empty slot, a desk on an interface with no MAC, one that has, twice, out of
+	 * range; detach: attached, twice, and one never attached */
+	mux_config(0, 30000, 25000, 3000);
+	m_op(M_ATTACH, 0);
+	m_ann(0, 3, K_C24);
+	m_op(M_ATTACH, 0);
+	m_ann(1, 1, K_C24);
+	m_op(M_ATTACH, 1);
+	m_op(M_ATTACH, 1);
+	m_op(M_ATTACH, 8);
+	m_op(M_DETACH, 1);
+	m_op(M_DETACH, 1);
+	m_op(M_DETACH, 0);
+	emit("mux", "attach-refusals");
+
+	/* through diginet_mux_poll(): an announce on interface 2, then a recv that fails */
+	struct diginet_header h = { .cmd = DIGINET_CMD_ANNOUNCE };
+	static const uint8_t BC[6] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff };
+	memset(body, 0, sizeof body);
+	memcpy(body + 15, "1.08", 4);
+	memcpy(body + 24, "CNTRL|24", 8);
+	int n = diginet_frame_build(f, sizeof f, BC, DESK, &h, body, sizeof body, DIGINET_SUM_BODY);
+	mux_config(1, 30000, 25000, 3000);
+	put8(M_POLL);
+	put8(0);
+	put8(1);
+	put_rec(f, (size_t)n);
+	put8(M_POLL);
+	put8(1);
+	put8(0);
+	put_rec(NULL, 0);
+	emit("mux", "poll");
+}
+
 int main(int argc, char **argv)
 {
 	(void)fails;
@@ -931,6 +1083,7 @@ int main(int argc, char **argv)
 	decode_seeds();
 	codec_seeds();
 	transport_seeds();
+	mux_seeds();
 	free(S.p);
 	return 0;
 }

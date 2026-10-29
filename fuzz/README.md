@@ -1,7 +1,8 @@
 # Fuzzing libdiginet
 
 libdiginet reads raw Ethernet frames a desk sends (EtherType 0x885F): the frame and its header,
-the command stream of a data frame, the controls in it, and the session those frames drive.
+the command stream of a data frame, the controls in it, the session those frames drive and the
+desk mux that hands each desk its own.
 Every function that reads those bytes has a libFuzzer harness here, built with clang under
 AddressSanitizer and UndefinedBehaviorSanitizer and run in CI on every push and pull request
 (`.github/workflows/fuzz.yml`). The harnesses are written to the build contract of OSS Verify
@@ -64,7 +65,7 @@ named seed, requires exit 134 from the record's own check, and puts the file bac
 seed must exit 0 on the unchanged tree. The count of records met is the proof:
 
 ```
-make fuzz-records: all 158 records and 22 patches met, each by its own check on its own seed (106 checks)
+make fuzz-records: all 185 records and 28 patches met, each by its own check on its own seed (121 checks)
 ```
 
 | Harness | Checks | Records | Sabotage patches |
@@ -73,6 +74,7 @@ make fuzz-records: all 158 records and 22 patches met, each by its own check on 
 | decode | 23 | 33 | 3 |
 | codec | 17 | 27 | 6 |
 | transport | 43 | 69 | 9 |
+| mux | 15 | 27 | 6 |
 
 ### What each harness checks
 
@@ -84,6 +86,7 @@ The header comment of each harness states its properties in full; in short:
 | `fuzz_decode` | `diginet_msg_next`, `diginet_decoder_next`, `diginet_body_check` | cursor: each step of the grammar, message or refusal, with its place, bytes, cursor and running status; events: each step as the control `docs/protocol.md` makes of it, every field; refusal: a body refused exactly when it holds F0 13 xx 70 |
 | `fuzz_codec` | every encoder of `src/diginet_codec.c`, the personalities, `diginet_scribble_text`, `diginet_seg7`, `diginet_counter_text`, the meter and ring helpers | personality, refusal of function 0x70, range (success exactly in range, the code otherwise, the command untouched on failure), bytes (the control's message, its key, the display flag), text |
 | `fuzz_transport` | `diginet_session_rx`, `_tick`, `_submit`, `_wake`, `_close`, `_poll`, `_deadline` | sent, ack, inflight, state, keepalive, latest, refusal (below) |
+| `fuzz_mux` | `diginet_mux_rx`, `_tick`, `_attach`, `_detach`, `_poll`, `_deadline`, `_find`, `_session` | appear, route, send, gone, attach, deadline (below) |
 
 `fuzz_transport` is the session's io: its send reads and records every frame the session sends
 (and fails one when the input asks), its recv hands `diginet_session_poll()` a frame the input
@@ -103,6 +106,22 @@ clock, never early, never skipped; frames within `max_cmds` and `max_body`, thei
 counter right, display writes paced; the queue exactly the pending commands, latest in place,
 and a command that may go gone after each tick; a command holding F0 13 xx 70 refused. Each
 timer has a seed that reaches it exactly, so a bound moved by one shows.
+
+`fuzz_mux` is the desk mux's io: its send reads every frame a desk's session sends and the
+interface it goes out of, its recv hands `diginet_mux_poll()` a frame and an interface the input
+chose, and its `if_mac` gives interfaces 1 and 2 a MAC and 3 none. Ten MACs, nine of them
+Digidesign's, announce and send on three interfaces; desks are attached as they appear or by
+hand, detached, given a command, and time passes. The harness keeps the table on its own: which
+desk is in which slot, on which interface, attached or not, when its last frame came, and
+whether its session ended on silence (read from that session's own notice; the session itself
+is `fuzz_transport`'s). Its properties: APPEARED exactly for the announce of a Digidesign MAC no
+desk holds while a slot is free, in the lowest free slot, with its MAC, interface, announce and
+personality; a present desk's frame on its interface to its attached session and to no other,
+on another interface to none, and every session notice under its own desk with its desk's
+frames only; every frame a session sends out of its desk's interface, to that desk, from that
+interface's MAC; GONE exactly for a desk silent for `gone_ms` or whose session ended on
+silence, on a tick, and the slot forgotten; attach and detach answering as the header says; the
+deadline never past a desk's gone time or a session's own deadline.
 
 ## The sabotage patches
 
@@ -152,9 +171,13 @@ runs it over its corpus: the build a verifier that brings its own driver takes.
   (`struct diginet_session_config`) is a struct the caller fills, not bytes from outside; the
   harness fills it from its input, every field in the range the session takes.
 - **The packet socket and the descriptor io** (`transport/src/diginet_io.c`). They read no bytes
-  of their own: they hand a whole frame to the session, which `fuzz_transport` drives with the
-  frame the input chose, through its own recv. What is left is system calls (`socket`, `bind`,
-  `poll`, `recvfrom`, `clock_gettime`), which a harness may not make.
+  of their own: they hand a whole frame to the session or the mux, which `fuzz_transport` and
+  `fuzz_mux` drive with the frame the input chose, through their own recv. What is left is
+  system calls (`socket`, `bind`, `poll`, `recvfrom`, `sendto`, `ioctl`, `sendmsg`, `recvmsg`,
+  `posix_spawn`, `clock_gettime`), which a harness may not make; `test_fdio` and `test_anyif`
+  test them on real descriptors.
+- **`diginet-packet-helper`** (`tools/diginet-packet-helper.c`) reads nothing: it opens a socket
+  and passes it on.
 - **`diginet-probe`** (`tools/diginet-probe.c`) reads its arguments and drives the library over
   a packet socket; the bytes it reads go through the readers above.
 - **The name tables** (`diginet_strerror`, `diginet_state_name`, `diginet_reason_name`) map a

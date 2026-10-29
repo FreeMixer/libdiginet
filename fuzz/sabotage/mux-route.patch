@@ -1,0 +1,16 @@
+Breaks the check of fuzz/fuzz_mux.c:272 (a present desk's frames are taken from any interface).
+Caught by the seed input "pinned" of fuzz_mux.
+
+diff --git a/transport/src/diginet_mux.c b/transport/src/diginet_mux.c
+index 93bfb3e..07a0060 100644
+--- a/transport/src/diginet_mux.c
++++ b/transport/src/diginet_mux.c
+@@ -130,7 +130,7 @@ int diginet_mux_rx(struct diginet_mux *m, const uint8_t *frame, size_t len, int
+ 	int i = diginet_mux_find(m, f.src);
+ 	if (i >= 0) {
+ 		struct diginet_mux_desk *d = &m->desks[i];
+-		if (d->ifindex != ifindex) {
++		if (0) {
+ 			m->stats.rx_other_if++;   /* the same desk seen on a second interface */
+ 			return DIGINET_OK;
+ 		}

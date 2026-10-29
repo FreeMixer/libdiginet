@@ -1,0 +1,17 @@
+Breaks the check of fuzz/fuzz_mux.c:382 (the deadline leaves out each attached session's own).
+Caught by the seed input "two-desks" of fuzz_mux.
+
+diff --git a/transport/src/diginet_mux.c b/transport/src/diginet_mux.c
+index 93bfb3e..e80f678 100644
+--- a/transport/src/diginet_mux.c
++++ b/transport/src/diginet_mux.c
+@@ -209,8 +209,7 @@ uint64_t diginet_mux_deadline(const struct diginet_mux *m, uint64_t now_us)
+ 		if (k->silent)
+ 			return now_us;
+ 		d = min64(d, k->last_rx_us + ms(m->cfg.gone_ms));
+-		if (k->attached)
+-			d = min64(d, diginet_session_deadline(&k->session, now_us));
++		(void)0;
+ 	}
+ 	return d < now_us ? now_us : d;
+ }

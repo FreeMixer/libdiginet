@@ -151,11 +151,11 @@ ksy-check:
 FUZZ_CC        ?= clang
 FUZZ_TIME      ?= 60
 FUZZ_BUILD     := build/fuzz
-FUZZ_HARNESSES := frame decode codec transport
+FUZZ_HARNESSES := frame decode codec transport mux
 FUZZ_SAN       := -fsanitize=address,undefined -fno-sanitize-recover=all
 FUZZ_CFLAGS    := -O1 -g -std=c11 -Wall -Wextra -Werror -D_DEFAULT_SOURCE -fno-omit-frame-pointer
-# What the harnesses drive: the protocol library and the session (not the socket code).
-FUZZ_SRCS      := $(OBJS:.o=.c) transport/src/diginet_session.c
+# What the harnesses drive: the protocol library, the session and the mux (not the socket code).
+FUZZ_SRCS      := $(OBJS:.o=.c) transport/src/diginet_session.c transport/src/diginet_mux.c
 FUZZ_LIB       := $(FUZZ_BUILD)/libdiginet-fuzz.a
 FUZZ_BINS      := $(FUZZ_HARNESSES:%=$(FUZZ_BUILD)/fuzz_%)
 
