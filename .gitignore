@@ -8,4 +8,5 @@
 !/tests/test_*.sh
 __pycache__/
 /tools/diginet-probe
+/tools/diginet-packet-helper
 /fuzz/findings/

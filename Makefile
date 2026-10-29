@@ -31,16 +31,17 @@ TABI    := $(shell sed -n 's/^\#define DIGINET_TRANSPORT_ABI  *\([0-9]*\)$$/\1/p
 
 OBJS := src/diginet_frame.o src/diginet_msg.o src/diginet_codec.o src/diginet_decode.o
 
-TOBJS := transport/src/diginet_io.o transport/src/diginet_session.o
+TOBJS := transport/src/diginet_io.o transport/src/diginet_session.o transport/src/diginet_mux.o
 
-TESTS := tests/test_frame tests/test_codec tests/test_transport tests/test_fdio tests/test_packet
+TESTS := tests/test_frame tests/test_codec tests/test_transport tests/test_mux tests/test_fdio tests/test_packet
 
 GOLDEN := tests/golden/frames.txt
 RUN_TEST := tests/run-test.sh
 
 PROBE := tools/diginet-probe
+HELPER := tools/diginet-packet-helper
 
-all: libdiginet.a libdiginet-transport.a $(PROBE)
+all: libdiginet.a libdiginet-transport.a $(PROBE) $(HELPER)
 
 # -MMD -MP: a header edit rebuilds every object that includes it.
 src/%.o: src/%.c
@@ -63,13 +64,18 @@ tests/test_frame: tests/test_frame.c tests/golden.h libdiginet.a
 tests/test_codec: tests/test_codec.c tests/golden.h libdiginet.a
 	$(CC) $(CFLAGS) $(WARN) $(INC) $< libdiginet.a -o $@
 
-tests/test_transport: tests/test_transport.c tests/desk_emu.c tests/desk_emu.h tests/golden.h libdiginet-transport.a libdiginet.a
+tests/test_transport tests/test_mux: tests/%: tests/%.c tests/desk_emu.c tests/desk_emu.h tests/golden.h libdiginet-transport.a libdiginet.a
 	$(CC) $(CFLAGS) $(WARN) $(INC) $< tests/desk_emu.c libdiginet-transport.a libdiginet.a -o $@
 
 tests/test_fdio tests/test_packet: tests/%: tests/%.c tests/desk_emu.c tests/desk_emu.h tests/emu_pump.h tests/golden.h libdiginet-transport.a libdiginet.a
 	$(CC) $(CFLAGS) $(WARN) $(INC) $< tests/desk_emu.c libdiginet-transport.a libdiginet.a -o $@
 
 $(PROBE): tools/diginet-probe.c libdiginet-transport.a libdiginet.a
+	$(CC) $(CFLAGS) $(WARN) $(INC) $< libdiginet-transport.a libdiginet.a $(LDFLAGS) -o $@
+
+# The helper links the archives even in the packages: a program that holds a capability loads no
+# shared library it could be handed in place of ours.
+$(HELPER): tools/diginet-packet-helper.c libdiginet-transport.a libdiginet.a
 	$(CC) $(CFLAGS) $(WARN) $(INC) $< libdiginet-transport.a libdiginet.a $(LDFLAGS) -o $@
 
 # ---- shared libraries (the packages) -------------------------------------------------------
@@ -92,17 +98,22 @@ build/diginet-probe: tools/diginet-probe.c $(TSO) $(SO)
 	@mkdir -p build
 	$(CC) $(CFLAGS) $(WARN) $(INC) $< $(LDFLAGS) -L. -ldiginet-transport -ldiginet -o $@
 
-shared: $(SO) $(TSO) build/diginet-probe
+shared: $(SO) $(TSO) build/diginet-probe $(HELPER)
+
+tests/test_anyif: tests/test_anyif.c tests/netns.h tests/desk_emu.c tests/desk_emu.h tests/emu_pump.h tests/golden.h libdiginet-transport.a libdiginet.a
+	$(CC) $(CFLAGS) $(WARN) $(INC) $< tests/desk_emu.c libdiginet-transport.a libdiginet.a -o $@
 
 tests/test_probe: tests/test_probe.c tests/desk_emu.c tests/desk_emu.h tests/emu_pump.h tests/golden.h libdiginet-transport.a libdiginet.a
 	$(CC) $(CFLAGS) $(WARN) $(INC) $< tests/desk_emu.c libdiginet-transport.a libdiginet.a -o $@
 
-test: $(TESTS) tests/test_probe $(PROBE)
+test: $(TESTS) tests/test_probe tests/test_anyif $(PROBE) $(HELPER)
 	$(RUN_TEST) tests/test_frame $(GOLDEN)
 	$(RUN_TEST) tests/test_codec $(GOLDEN)
 	$(RUN_TEST) tests/test_transport
-	$(RUN_TEST) tests/test_fdio
+	$(RUN_TEST) tests/test_mux
+	$(RUN_TEST) tests/test_fdio $(HELPER)
 	$(RUN_TEST) tests/test_packet
+	$(RUN_TEST) tests/test_anyif $(HELPER) $(PROBE)
 	$(RUN_TEST) tests/test_probe $(PROBE)
 	$(RUN_TEST) tests/test_install.sh
 	$(RUN_TEST) tests/conformance-packaging.sh
@@ -140,11 +151,11 @@ ksy-check:
 FUZZ_CC        ?= clang
 FUZZ_TIME      ?= 60
 FUZZ_BUILD     := build/fuzz
-FUZZ_HARNESSES := frame decode codec transport
+FUZZ_HARNESSES := frame decode codec transport mux
 FUZZ_SAN       := -fsanitize=address,undefined -fno-sanitize-recover=all
 FUZZ_CFLAGS    := -O1 -g -std=c11 -Wall -Wextra -Werror -D_DEFAULT_SOURCE -fno-omit-frame-pointer
-# What the harnesses drive: the protocol library and the session (not the socket code).
-FUZZ_SRCS      := $(OBJS:.o=.c) transport/src/diginet_session.c
+# What the harnesses drive: the protocol library, the session and the mux (not the socket code).
+FUZZ_SRCS      := $(OBJS:.o=.c) transport/src/diginet_session.c transport/src/diginet_mux.c
 FUZZ_LIB       := $(FUZZ_BUILD)/libdiginet-fuzz.a
 FUZZ_BINS      := $(FUZZ_HARNESSES:%=$(FUZZ_BUILD)/fuzz_%)
 
@@ -250,25 +261,26 @@ install-common:
 	$(PCSED) packaging/libdiginet.pc.in > $(DESTDIR)$(PCDIR)/libdiginet.pc
 	$(PCSED) packaging/libdiginet-transport.pc.in > $(DESTDIR)$(PCDIR)/libdiginet-transport.pc
 	install -m 644 protocol/diginet.ksy $(DESTDIR)$(DATADIR)/diginet/
-	install -m 644 docs/diginet-probe.1 $(DESTDIR)$(MANDIR)/man1/
+	install -m 644 docs/diginet-probe.1 docs/diginet-packet-helper.1 $(DESTDIR)$(MANDIR)/man1/
 
-install: libdiginet.a libdiginet-transport.a $(PROBE) install-common
+install: libdiginet.a libdiginet-transport.a $(PROBE) $(HELPER) install-common
 	install -d $(DESTDIR)$(LIBDIR)
 	install -m 644 libdiginet.a libdiginet-transport.a $(DESTDIR)$(LIBDIR)/
-	install -m 755 $(PROBE) $(DESTDIR)$(BINDIR)/
+	install -m 755 $(PROBE) $(HELPER) $(DESTDIR)$(BINDIR)/
 
 # The packages: shared libraries with their soname links, the probe linked against them.
-install-shared: shared install-common
+install-shared: shared $(HELPER) install-common
 	install -d $(DESTDIR)$(LIBDIR)
 	install -m 755 $(SO) $(TSO) $(DESTDIR)$(LIBDIR)/
 	ln -sf $(SO) $(DESTDIR)$(LIBDIR)/libdiginet.so.$(ABI)
 	ln -sf libdiginet.so.$(ABI) $(DESTDIR)$(LIBDIR)/libdiginet.so
 	ln -sf $(TSO) $(DESTDIR)$(LIBDIR)/libdiginet-transport.so.$(TABI)
 	ln -sf libdiginet-transport.so.$(TABI) $(DESTDIR)$(LIBDIR)/libdiginet-transport.so
-	install -m 755 build/diginet-probe $(DESTDIR)$(BINDIR)/
+	install -m 755 build/diginet-probe $(HELPER) $(DESTDIR)$(BINDIR)/
 
 clean:
-	rm -f $(OBJS) $(OBJS:.o=.d) $(TOBJS) $(TOBJS:.o=.d) libdiginet.a libdiginet-transport.a *.pc $(TESTS) tests/test_probe $(PROBE)
+	rm -f $(OBJS) $(OBJS:.o=.d) $(TOBJS) $(TOBJS:.o=.d) libdiginet.a libdiginet-transport.a *.pc $(TESTS) tests/test_probe tests/test_anyif \
+	    $(PROBE) $(HELPER)
 	rm -f libdiginet.so* libdiginet-transport.so*
 	rm -rf build
 

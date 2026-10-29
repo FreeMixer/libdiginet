@@ -29,8 +29,8 @@ cd "$ROOT"
 B=${FUZZ_BUILD:-build/fuzz}/records
 CC=${FUZZ_CC:-clang}
 CFLAGS="-O0 -g -std=c11 -D_DEFAULT_SOURCE -w"
-HARNESSES=${*:-frame decode codec transport}
-LIB="src/diginet_frame.c src/diginet_msg.c src/diginet_codec.c src/diginet_decode.c transport/src/diginet_session.c"
+HARNESSES=${*:-frame decode codec transport mux}
+LIB="src/diginet_frame.c src/diginet_msg.c src/diginet_codec.c src/diginet_decode.c transport/src/diginet_session.c transport/src/diginet_mux.c"
 SEP=$(printf '\037')
 mkdir -p "$B/base"
 # an aborting run leaves no core in the tree

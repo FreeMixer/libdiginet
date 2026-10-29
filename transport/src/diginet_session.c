@@ -24,6 +24,7 @@ void diginet_session_config_default(struct diginet_session_config *c)
 	c->display_gap_us = 2000;
 	c->max_cmds = 48;
 	c->max_body = 314;
+	c->deaf_wakes = 3;
 }
 
 const char *diginet_state_name(enum diginet_session_state st)
@@ -205,6 +206,8 @@ static void on_announce(struct diginet_session *s, const struct diginet_frame *f
 	struct diginet_notice n = { .kind = DIGINET_N_DESK, .state = s->state, .frame = f,
 				    .announce = &a, .personality = p, .mac_offset = off };
 	s->notify(s->notify_ctx, &n);
+	s->announce_seen = 1;
+	s->last_announce_us = now;
 
 	if (f->h.cmd == DIGINET_CMD_ANNOUNCE) {
 		s->foreign = 0;
@@ -225,6 +228,7 @@ static void on_announce(struct diginet_session *s, const struct diginet_frame *f
 		return;
 	}
 	s->foreign = 1;
+	s->deaf_count = 0;   /* it answers another host: not deaf */
 	struct diginet_notice fn = { .kind = DIGINET_N_FOREIGN, .state = s->state, .frame = f, .announce = &a };
 	s->notify(s->notify_ctx, &fn);
 	if (s->state == DIGINET_S_ONLINE || s->state == DIGINET_S_WAKING)
@@ -243,6 +247,7 @@ static void on_ack(struct diginet_session *s, const struct diginet_frame *f)
 	s->notify(s->notify_ctx, &n);
 	if (s->state == DIGINET_S_WAKING) {
 		s->wake_acked = 1;
+		s->deaf_count = 0;
 		maybe_online(s);
 	}
 }
@@ -430,7 +435,15 @@ int diginet_session_tick(struct diginet_session *s, uint64_t now)
 		return DIGINET_OK;
 
 	if (s->state == DIGINET_S_WAKING && now - s->wake_sent_us >= ms(s->cfg.wake_timeout_ms)) {
+		/* Deaf: the desk still announces (within offline_ms) and lets wake after wake time out. */
+		int announcing = s->announce_seen && now - s->last_announce_us < ms(s->cfg.offline_ms);
+		s->deaf_count = announcing ? s->deaf_count + 1 : 0;
 		session_lost(s, DIGINET_R_WAKE_TIMEOUT);
+		if (s->cfg.deaf_wakes && s->deaf_count == s->cfg.deaf_wakes) {
+			struct diginet_notice n = { .kind = DIGINET_N_DESK_DEAF, .state = s->state,
+						    .counter = s->deaf_count };
+			s->notify(s->notify_ctx, &n);
+		}
 		return DIGINET_OK;
 	}
 	if (s->state == DIGINET_S_ONLINE && now - s->last_rx_us >= ms(s->cfg.offline_ms)) {

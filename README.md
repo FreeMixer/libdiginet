@@ -25,7 +25,8 @@ Early, and not yet tried on a desk. In the tree:
 1. `protocol/diginet.ksy`, the formal byte grammar, with golden-frame tests.
 2. The codecs and the Control|24 / ProControl personalities.
 3. The transport: session state machine, ack window, keepalive, retransmit, latest-wins coalescing, all tested against a desk emulator.
-4. `diginet-probe`, a command-line tool for a first test on a real desk: wake it, move a fader, light a lamp, write a scribble strip, log every press. See [docs/probe.md](docs/probe.md).
+4. One packet socket for every interface, and a desk mux that runs a session per desk over it, with appeared and gone notices, so a host hears every desk on every NIC, one plugged in later included. The socket can come from `diginet-packet-helper`, so the host itself needs no capability.
+5. `diginet-probe`, a command-line tool for a first test on a real desk: wake it, move a fader, light a lamp, write a scribble strip, log every press. See [docs/probe.md](docs/probe.md).
 
 Building and testing: [BUILDING.md](BUILDING.md).
 

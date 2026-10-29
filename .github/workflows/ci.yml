@@ -50,8 +50,8 @@ jobs:
           ./consumer
 
   host:
-    # The containers above usually cannot create user namespaces, so test_packet reports
-    # SKIP there. On the bare runner it can, once Ubuntu's AppArmor limit is lifted.
+    # The containers above usually cannot create user namespaces, so test_packet and test_anyif
+    # report SKIP there. On the bare runner it can, once Ubuntu's AppArmor limit is lifted.
     name: make test on the runner (AF_PACKET in a namespace)
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -66,6 +66,8 @@ jobs:
         shell: bash
       - name: The packet test ran
         run: "grep -q 'test_packet: ok' test.log"
+      - name: The any-interface test ran (the helper's socket on veth pairs)
+        run: "grep -q 'test_anyif: ok' test.log"
 
   ksy:
     name: diginet.ksy compiles and reads the golden frames

@@ -1,0 +1,16 @@
+Breaks the check of fuzz/fuzz_transport.c:631 (an a0 for the e2 does not end a run of deaf wakes).
+Caught by the seed input "deaf-reset-ack" of fuzz_transport.
+
+diff --git a/transport/src/diginet_session.c b/transport/src/diginet_session.c
+index 8a41148..9edc0ad 100644
+--- a/transport/src/diginet_session.c
++++ b/transport/src/diginet_session.c
+@@ -247,7 +247,7 @@ static void on_ack(struct diginet_session *s, const struct diginet_frame *f)
+ 	s->notify(s->notify_ctx, &n);
+ 	if (s->state == DIGINET_S_WAKING) {
+ 		s->wake_acked = 1;
+-		s->deaf_count = 0;
++		(void)0;
+ 		maybe_online(s);
+ 	}
+ }

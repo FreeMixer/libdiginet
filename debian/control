@@ -51,3 +51,7 @@ Description: first test of a Digidesign Control|24 or ProControl
  key, touch and turn, and ends with a summary of what the desk answered. It is
  given the one capability it needs to open a packet socket, cap_net_raw, on
  install.
+ .
+ diginet-packet-helper opens the packet socket that hears a desk on every
+ network interface and hands it to the program that started it, so that
+ program needs no capability. It too is given cap_net_raw on install.

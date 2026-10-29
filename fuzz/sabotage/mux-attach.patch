@@ -1,0 +1,16 @@
+Breaks the check of fuzz/fuzz_mux.c:343 (a desk can be attached twice, its session started again).
+Caught by the seed input "attach-refusals" of fuzz_mux.
+
+diff --git a/transport/src/diginet_mux.c b/transport/src/diginet_mux.c
+index 93bfb3e..434f952 100644
+--- a/transport/src/diginet_mux.c
++++ b/transport/src/diginet_mux.c
+@@ -80,7 +80,7 @@ int diginet_mux_attach(struct diginet_mux *m, unsigned desk, const struct digine
+ 	if (!m || desk >= DIGINET_MUX_MAX_DESKS)
+ 		return DIGINET_E_ARG;
+ 	struct diginet_mux_desk *d = &m->desks[desk];
+-	if (!d->present || d->attached)
++	if (!d->present)
+ 		return DIGINET_E_ARG;
+ 	struct diginet_session_config c = cfg ? *cfg : m->cfg.session;
+ 	int r = m->io.if_mac(m->io.ctx, d->ifindex, c.host_mac);

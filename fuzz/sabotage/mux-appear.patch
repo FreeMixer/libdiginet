@@ -1,0 +1,16 @@
+Breaks the check of fuzz/fuzz_mux.c:211 (an announce from any MAC makes a desk present).
+Caught by the seed input "set-aside" of fuzz_mux.
+
+diff --git a/transport/src/diginet_mux.c b/transport/src/diginet_mux.c
+index 93bfb3e..13166c5 100644
+--- a/transport/src/diginet_mux.c
++++ b/transport/src/diginet_mux.c
+@@ -144,7 +144,7 @@ int diginet_mux_rx(struct diginet_mux *m, const uint8_t *frame, size_t len, int
+ 	/* A desk no slot holds: only its announce (an e0 or e1 the parser takes), from a Digidesign
+ 	 * MAC, makes it present. */
+ 	struct diginet_announce a;
+-	if (!diginet_mac_is_digidesign(f.src) || diginet_announce_parse(&f, &a) != DIGINET_OK) {
++	if (diginet_announce_parse(&f, &a) != DIGINET_OK) {
+ 		m->stats.rx_ignored++;
+ 		return DIGINET_OK;
+ 	}

@@ -1,0 +1,16 @@
+Breaks the check of fuzz/fuzz_mux.c:320 (a desk silent for exactly gone_ms is not gone yet).
+Caught by the seed input "gone-exact" of fuzz_mux.
+
+diff --git a/transport/src/diginet_mux.c b/transport/src/diginet_mux.c
+index 93bfb3e..4988c32 100644
+--- a/transport/src/diginet_mux.c
++++ b/transport/src/diginet_mux.c
+@@ -189,7 +189,7 @@ int diginet_mux_tick(struct diginet_mux *m, uint64_t now_us)
+ 			continue;
+ 		if (d->attached)
+ 			diginet_session_tick(&d->session, now_us);
+-		if (d->silent || now_us - d->last_rx_us >= ms(m->cfg.gone_ms))
++		if (d->silent || now_us - d->last_rx_us > ms(m->cfg.gone_ms))
+ 			gone(m, d);
+ 	}
+ 	return DIGINET_OK;

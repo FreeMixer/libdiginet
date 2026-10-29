@@ -11,10 +11,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <net/if.h>
 
 #include <diginet/diginet.h>
 #include <diginet/diginet_codec.h>
 #include <diginet/transport/diginet_io.h>
+#include <diginet/transport/diginet_mux.h>
 #include <diginet/transport/diginet_session.h>
 
 enum { EXIT_OK = 0, EXIT_USAGE = 2, EXIT_FOREIGN = 3, EXIT_NO_DESK = 4, EXIT_NO_ACK = 5 };
@@ -22,7 +24,9 @@ enum { EXIT_OK = 0, EXIT_USAGE = 2, EXIT_FOREIGN = 3, EXIT_NO_DESK = 4, EXIT_NO_
 static volatile sig_atomic_t stop;
 static void on_signal(int sig) { (void)sig; stop = 1; }
 
-static struct diginet_session S;
+/* The session the steps drive: the probe's own over one interface or a descriptor, or with --any
+ * the session of the desk the mux attached (S0, idle and empty, while there is none). */
+static struct diginet_session S0, *S = &S0;
 static uint64_t t0;
 static const struct diginet_personality *P;
 
@@ -171,6 +175,10 @@ static void on_notice(void *ctx, const struct diginet_notice *n)
 			say("desk is in a session with another host: not waking it");
 		R.foreign = 1;
 		break;
+	case DIGINET_N_DESK_DEAF:
+		say("desk announces but let %u wakes in a row time out: it likely booted with large "
+		    "broadcasts on its link; power-cycle it with the link quiet", n->counter);
+		break;
 	case DIGINET_N_STATE:
 		say("session %s -> %s (%s)", diginet_state_name(n->old_state), diginet_state_name(n->state),
 		    diginet_reason_name(n->reason));
@@ -189,7 +197,7 @@ static void on_notice(void *ctx, const struct diginet_notice *n)
 		}
 		break;
 	case DIGINET_N_ACKED:
-		if (S.state == DIGINET_S_WAKING)
+		if (S->state == DIGINET_S_WAKING)
 			R.acked_wake = 1;
 		else
 			R.acked++;
@@ -216,19 +224,91 @@ static void on_notice(void *ctx, const struct diginet_notice *n)
 	}
 }
 
+/* --any: one socket for every interface, and the desk mux over it. */
+static struct diginet_mux MUX;
+static int any_mode, our_desk = -1;
+static struct diginet_session_config any_cfg;
+static const uint8_t *desk_filter;
+static int heard_if[16], nheard_if;
+
+static const char *if_name(int ifindex, char *buf)
+{
+	if (!if_indextoname((unsigned)ifindex, buf))
+		snprintf(buf, IF_NAMESIZE, "#%d", ifindex);
+	return buf;
+}
+
+static void on_mux_notice(void *ctx, const struct diginet_mux_notice *n)
+{
+	(void)ctx;
+	char name[IF_NAMESIZE];
+	const uint8_t *m = n->mac;
+	switch (n->kind) {
+	case DIGINET_MUX_N_APPEARED: {
+		say("desk %02x:%02x:%02x:%02x:%02x:%02x appeared on %s (\"%s\")", m[0], m[1], m[2], m[3], m[4],
+		    m[5], if_name(n->ifindex, name), n->announce->name);
+		int seen = 0;
+		for (int i = 0; i < nheard_if; i++)
+			seen |= heard_if[i] == n->ifindex;
+		if (!seen && nheard_if < 16)
+			heard_if[nheard_if++] = n->ifindex;
+		if (our_desk >= 0 || (desk_filter && memcmp(desk_filter, m, 6)))
+			break;
+		/* the desk the run is about; one that comes back after it was gone is woken again */
+		struct diginet_session_config c = any_cfg;
+		c.auto_wake = R.desk_seen;
+		int r = diginet_mux_attach(&MUX, n->desk, &c);
+		if (r != DIGINET_OK) {
+			say("cannot attach the desk on %s: %s", name, r < 0 ? strerror(-r) : diginet_strerror(r));
+			break;
+		}
+		our_desk = (int)n->desk;
+		S = diginet_mux_session(&MUX, n->desk);
+		const uint8_t *h = S->cfg.host_mac;
+		say("attached: host %02x:%02x:%02x:%02x:%02x:%02x on %s", h[0], h[1], h[2], h[3], h[4], h[5], name);
+		break;
+	}
+	case DIGINET_MUX_N_GONE:
+		say("desk %02x:%02x:%02x:%02x:%02x:%02x gone from %s", m[0], m[1], m[2], m[3], m[4], m[5],
+		    if_name(n->ifindex, name));
+		if ((int)n->desk == our_desk) {
+			our_desk = -1;
+			S = &S0;
+		}
+		break;
+	case DIGINET_MUX_N_SESSION:
+		if ((int)n->desk == our_desk)
+			on_notice(NULL, n->session);
+		break;
+	}
+}
+
+static int send_nowhere(void *ctx, const uint8_t *frame, size_t len)
+{
+	(void)ctx;
+	(void)frame;
+	(void)len;
+	return -ENOTCONN;
+}
+
+static int poll_wire(int ms)
+{
+	return any_mode ? diginet_mux_poll(&MUX, ms) : diginet_session_poll(S, ms);
+}
+
 /* Run the session for `ms` milliseconds (or until stop). */
 static void run_for(unsigned ms)
 {
 	uint64_t end = diginet_clock_us() + (uint64_t)ms * 1000u;
-	uint64_t ka = S.stats.tx_keepalives;
+	uint64_t ka = S->stats.tx_keepalives;
 	while (!stop && diginet_clock_us() < end) {
-		int r = diginet_session_poll(&S, 20);
+		int r = poll_wire(20);
 		if (r < 0) {
 			say("io error: %s", strerror(-r));
 			stop = 1;
 		}
-		if (S.stats.tx_keepalives != ka) {
-			ka = S.stats.tx_keepalives;
+		if (S->stats.tx_keepalives != ka) {
+			ka = S->stats.tx_keepalives;
 			R.last_keepalive_us = diginet_clock_us();
 		}
 	}
@@ -251,9 +331,9 @@ static const char *online_how(void)
 	return R.e1_before_ack ? "e1 before a0" : "a0 then e1";
 }
 
-static int c_desk(void) { return R.desk_seen && (R.foreign || S.state != DIGINET_S_IDLE || !S.cfg.auto_wake); }
-static int c_online(void) { return S.state == DIGINET_S_ONLINE || R.foreign; }
-static int c_drained(void) { return !S.inflight && !S.queued; }
+static int c_desk(void) { return R.desk_seen && (R.foreign || S->state != DIGINET_S_IDLE || !S->cfg.auto_wake); }
+static int c_online(void) { return S->state == DIGINET_S_ONLINE || R.foreign; }
+static int c_drained(void) { return !S->inflight && !S->queued; }
 
 static void send_cmd(const struct diginet_cmd *c, const char *what)
 {
@@ -261,7 +341,7 @@ static void send_cmd(const struct diginet_cmd *c, const char *what)
 	char hex[3 * DIGINET_CMD_MAX_LEN + 1] = "";
 	for (int i = 0; i < c->len; i++)
 		sprintf(hex + 3 * i, "%02x%s", c->bytes[i], i + 1 < c->len ? " " : "");
-	int r = diginet_session_submit(&S, c);
+	int r = diginet_session_submit(S, c);
 	if (r) {
 		say("%s: refused (%s)", what, diginet_strerror(r));
 		return;
@@ -314,11 +394,16 @@ static void usage(FILE *f)
 	fprintf(f,
 		"usage: diginet-probe -i <interface> [options]\n"
 		"       diginet-probe --fd <n> --mac <host-mac> [options]\n"
+		"       diginet-probe --any [--helper <path>] [options]\n"
 		"\n"
 		"  -i, --interface <if>    the interface the desk is cabled to (needs cap_net_raw:\n"
 		"                          sudo setcap cap_net_raw=ep ./diginet-probe)\n"
 		"      --fd <n>            use an open descriptor carrying whole frames instead\n"
 		"      --mac <mac>         this host's MAC (with --fd)\n"
+		"      --any               every interface at once: the first desk heard on any of them\n"
+		"                          (or --desk), its host MAC that interface's; without\n"
+		"                          cap_net_raw the socket comes from diginet-packet-helper\n"
+		"      --helper <path>     with --any, always take the socket from this helper\n"
 		"      --desk <mac>        talk to this desk only\n"
 		"      --checksum zero|sum header sum of our frames (default sum)\n"
 		"      --keepalive <s>     keepalive interval (default 10)\n"
@@ -332,7 +417,7 @@ static void usage(FILE *f)
 
 int main(int argc, char **argv)
 {
-	const char *ifname = NULL;
+	const char *ifname = NULL, *helper = NULL;
 	int fd = -1, have_mac = 0;
 	struct diginet_session_config cfg;
 	diginet_session_config_default(&cfg);
@@ -344,6 +429,7 @@ int main(int argc, char **argv)
 		{ "checksum", required_argument, 0, 'C' }, { "keepalive", required_argument, 0, 'K' },
 		{ "listen", required_argument, 0, 'L' }, { "wait", required_argument, 0, 'W' },
 		{ "answer", required_argument, 0, 'A' }, { "touch-test", no_argument, 0, 'T' },
+		{ "any", no_argument, 0, 'Y' }, { "helper", required_argument, 0, 'H' },
 		{ "help", no_argument, 0, 'h' }, { 0, 0, 0, 0 },
 	};
 	int o;
@@ -364,18 +450,36 @@ int main(int argc, char **argv)
 		case 'W': wait_s = (unsigned)strtoul(optarg, &end, 10); if (*end || !wait_s) goto bad; break;
 		case 'A': answer_s = (unsigned)strtoul(optarg, &end, 10); if (*end) goto bad; break;
 		case 'T': R.touch_test = 1; break;
+		case 'Y': any_mode = 1; break;
+		case 'H': helper = optarg; break;
 		case 'h': usage(stdout); return EXIT_OK;
 		default: goto bad;
 		}
 	}
-	if (optind != argc || (!ifname) == (fd < 0) || (fd >= 0 && !have_mac))
+	if (optind != argc || (!!ifname + (fd >= 0) + any_mode) != 1 || (fd >= 0 && !have_mac) ||
+	    (helper && !any_mode) || (any_mode && have_mac))
 		goto bad;
 	cfg.keepalive_ms = keepalive_s * 1000u;
 	/* The offline timeout must outlast a stretched keepalive, or R5 cannot be measured. */
 	if (cfg.offline_ms < 3 * cfg.keepalive_ms)
 		cfg.offline_ms = 3 * cfg.keepalive_ms;
 
-	if (ifname) {
+	if (any_mode) {
+		fd = helper ? -EPERM : diginet_packet_open_any();
+		if (fd == -EPERM || fd == -EACCES) {
+			fd = diginet_packet_open_by_helper(helper);
+			if (fd < 0) {
+				fprintf(stderr, "diginet-probe: no socket from %s: %s\n",
+					helper ? helper : "diginet-packet-helper", strerror(-fd));
+				return EXIT_USAGE;
+			}
+			fprintf(stderr, "diginet-probe: the socket came from %s; this process holds no capability for it\n",
+				helper ? helper : "diginet-packet-helper");
+		} else if (fd < 0) {
+			fprintf(stderr, "diginet-probe: cannot open the any-interface socket: %s\n", strerror(-fd));
+			return EXIT_USAGE;
+		}
+	} else if (ifname) {
 		fd = diginet_packet_open(ifname, cfg.host_mac);
 		if (fd < 0) {
 			fprintf(stderr, "diginet-probe: cannot open %s: %s%s\n", ifname, strerror(-fd),
@@ -391,18 +495,37 @@ int main(int argc, char **argv)
 	sigaction(SIGTERM, &sa, NULL);
 
 	struct diginet_fd_io st;
-	struct diginet_io io;
-	diginet_io_fd(&io, &st, fd);
-	if (diginet_session_init(&S, &cfg, &io, on_notice, NULL) != DIGINET_OK) {
-		fprintf(stderr, "diginet-probe: bad session settings\n");
-		return EXIT_USAGE;
+	if (any_mode) {
+		struct diginet_mux_io mio;
+		diginet_mux_io_packet(&mio, &st, fd);
+		any_cfg = cfg;
+		desk_filter = cfg.desk_mac_set ? any_cfg.desk_mac : NULL;
+		/* S0 stands while no desk is attached: it knows no desk and sends nothing */
+		struct diginet_io none = { .ctx = NULL, .send = send_nowhere, .recv = NULL, .now_us = NULL };
+		if (diginet_session_init(&S0, &cfg, &none, on_notice, NULL) != DIGINET_OK ||
+		    diginet_mux_init(&MUX, NULL, &mio, on_mux_notice, NULL) != DIGINET_OK) {
+			fprintf(stderr, "diginet-probe: bad session settings\n");
+			return EXIT_USAGE;
+		}
+		S0.desk_known = 0;
+	} else {
+		struct diginet_io io;
+		diginet_io_fd(&io, &st, fd);
+		if (diginet_session_init(S, &cfg, &io, on_notice, NULL) != DIGINET_OK) {
+			fprintf(stderr, "diginet-probe: bad session settings\n");
+			return EXIT_USAGE;
+		}
 	}
 	t0 = diginet_clock_us();
 	P = diginet_personality_of(DIGINET_DESK_CONTROL24);
 	const uint8_t *hm = cfg.host_mac;
-	say("diginet-probe %s: host %02x:%02x:%02x:%02x:%02x:%02x, checksum %s, keepalive %u s",
-	    DIGINET_VERSION_STRING, hm[0], hm[1], hm[2], hm[3], hm[4], hm[5],
-	    cfg.sum_mode == DIGINET_SUM_ZERO ? "zero" : "sum", keepalive_s);
+	if (any_mode)
+		say("diginet-probe %s: every interface, the host MAC the desk's interface's, checksum %s, keepalive %u s",
+		    DIGINET_VERSION_STRING, cfg.sum_mode == DIGINET_SUM_ZERO ? "zero" : "sum", keepalive_s);
+	else
+		say("diginet-probe %s: host %02x:%02x:%02x:%02x:%02x:%02x, checksum %s, keepalive %u s",
+		    DIGINET_VERSION_STRING, hm[0], hm[1], hm[2], hm[3], hm[4], hm[5],
+		    cfg.sum_mode == DIGINET_SUM_ZERO ? "zero" : "sum", keepalive_s);
 
 	/* 1. the announce */
 	say("step 1: waiting up to %u s for the desk's announce", wait_s);
@@ -418,7 +541,7 @@ int main(int argc, char **argv)
 
 	/* 2-3. wake */
 	say("step 2: sending e2");
-	if (diginet_session_wake(&S, diginet_clock_us()) != DIGINET_OK) {
+	if (diginet_session_wake(S, diginet_clock_us()) != DIGINET_OK) {
 		say("RESULT: e2 refused");
 		return R.foreign ? EXIT_FOREIGN : EXIT_NO_DESK;
 	}
@@ -426,7 +549,7 @@ int main(int argc, char **argv)
 	if (!run_until(c_online, 5000) || R.foreign) {
 		say("RESULT: the desk did not come online (a0 %s, e1 naming us %s)",
 		    R.acked_wake ? "seen" : "missing", R.e1_offset >= 0 ? "seen" : "missing");
-		diginet_session_close(&S, diginet_clock_us());
+		diginet_session_close(S, diginet_clock_us());
 		return R.foreign ? EXIT_FOREIGN : EXIT_NO_DESK;
 	}
 	say("online: %s, host MAC at e1 body offset %d", online_how(), R.e1_offset);
@@ -468,9 +591,18 @@ int main(int argc, char **argv)
 
 	/* 9. e3 */
 	say("step 9: sending e3");
-	diginet_session_close(&S, diginet_clock_us());
+	diginet_session_close(S, diginet_clock_us());
 
 	say("SUMMARY desk: \"%s\" version \"%s\" (R1)", R.name, R.version);
+	if (any_mode) {
+		char list[16 * (IF_NAMESIZE + 1)] = "", name[IF_NAMESIZE];
+		for (int i = 0; i < nheard_if; i++) {
+			strcat(list, i ? " " : "");
+			strcat(list, if_name(heard_if[i], name));
+		}
+		say("SUMMARY any interface: desks appeared on %s; %llu frames set aside from another interface",
+		    nheard_if ? list : "(none)", (unsigned long long)MUX.stats.rx_other_if);
+	}
 	say("SUMMARY online: %s, host MAC at e1 body offset %d (A6)", online_how(), R.e1_offset);
 	say("SUMMARY checksum %s: fader frame %s (R3)", cfg.sum_mode == DIGINET_SUM_ZERO ? "zero" : "sum",
 	    fader_acked ? "ACKed" : "NOT ACKed");
@@ -485,7 +617,7 @@ int main(int argc, char **argv)
 	    R.lost_online, R.lost_online ? " (last: " : "",
 	    R.lost_online ? diginet_reason_name(R.lost_why) : "", R.lost_online ? ")" : "");
 	say("SUMMARY our frames ACKed %u, lost %u, retransmits %llu, desk retries %llu (R8)", R.acked, R.lost,
-	    (unsigned long long)S.stats.tx_retransmits, (unsigned long long)S.stats.rx_desk_retries);
+	    (unsigned long long)S->stats.tx_retransmits, (unsigned long long)S->stats.rx_desk_retries);
 	if (R.touch_test) {
 		if (!R.release_seen)
 			say("SUMMARY touch test: no touch and release of fader 1 was seen (R4)");

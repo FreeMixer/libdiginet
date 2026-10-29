@@ -1,0 +1,413 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
+
+/* The any-interface packet socket on real interfaces, without root (tests/netns.h): the test
+ * enters a user and network namespace of its own and makes two veth pairs, hA <-> dA and
+ * hB <-> dB, the h ends the host's interfaces and the d ends where a desk sits. Then:
+ *
+ *  - it gives up every capability, so diginet_packet_open_any() fails here (-EPERM), and takes
+ *    the any-interface socket from diginet-packet-helper instead (diginet_packet_open_by_helper);
+ *  - hB/dB is made only after that socket exists (by a child that kept the capabilities), and
+ *    is heard all the same: the socket is bound to no interface;
+ *  - a frame a desk sends on dA comes in named hA, one on dB named hB; our own frames are
+ *    never handed back; a frame sent to hA's index goes out of hA only, and to hB's out of hB;
+ *  - diginet_if_mac() reads each host interface's MAC;
+ *  - a socket that taps every protocol, handed over in place of ours, also sees what this host
+ *    sends as outgoing: diginet_packet_recvfrom() skips it (a socket bound to 0x885F gets none);
+ *  - diginet_packet_receive_fd() refuses two packet sockets in one message, and closes both;
+ *  - the helper's socket comes back when this process's 3 is free and a lower one is too, so
+ *    the child's end of the socketpair is born on 3 (posix_spawn's dup2 onto itself);
+ *  - the desk mux over that one socket (diginet_mux_io_packet, diginet_mux_poll): a desk
+ *    emulator on dA and another on dB each appear on their own host interface, are attached,
+ *    come online with that interface's MAC as their host, and each gets its own fader only;
+ *  - diginet-probe --any --helper: the probe takes its socket from the helper, hears both
+ *    desks, runs its steps with the first one from hA's MAC, and names both interfaces.
+ *
+ *   tests/test_anyif <path to diginet-packet-helper> <path to diginet-probe>
+ *
+ * Exits 77 where unprivileged user and network namespaces are not allowed: nothing was tested. */
+#define _GNU_SOURCE
+#include "golden.h"
+#include "netns.h"
+#include "emu_pump.h"
+
+#include <signal.h>
+#include <time.h>
+#include <arpa/inet.h>
+#include <sys/wait.h>
+#include <linux/if_ether.h>
+#include <linux/if_packet.h>
+
+#include <diginet/transport/diginet_io.h>
+#include <diginet/transport/diginet_mux.h>
+
+static const uint8_t DESK_A[6] = { 0x00, 0xa0, 0x7e, 0x24, 0x00, 0x0a };
+static const uint8_t DESK_B[6] = { 0x00, 0xa0, 0x7e, 0x24, 0x00, 0x0b };
+static const uint8_t BCAST[6] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff };
+
+/* A desk's announce on its own socket, a frame of the grammar from `src`. */
+static int announce(int fd, const uint8_t src[6])
+{
+	uint8_t f[DIGINET_MAX_FRAME_LEN], body[DIGINET_ANNOUNCE_BODY_LEN];
+	memset(body, 0, sizeof body);
+	memcpy(body + 15, "1.08", 4);
+	memcpy(body + 24, "CNTRL|24", 8);
+	struct diginet_header h = { .cmd = DIGINET_CMD_ANNOUNCE };
+	int n = diginet_frame_build(f, sizeof f, BCAST, src, &h, body, sizeof body, DIGINET_SUM_BODY);
+	return n > 0 && send(fd, f, (size_t)n, 0) == n ? 0 : -1;
+}
+
+/* The next 0x885F frame on `fd` within `ms`, its source MAC and its interface. */
+static int next_frame(int fd, int ms, uint8_t src[6], int *ifindex)
+{
+	uint8_t b[DIGINET_MAX_FRAME_LEN];
+	uint64_t end = diginet_clock_us() + (uint64_t)ms * 1000u;
+	while (diginet_clock_us() < end) {
+		int n = diginet_packet_recvfrom(fd, b, sizeof b, ifindex, 10);
+		if (n >= DIGINET_ETH_HDR_LEN) {
+			memcpy(src, b + 6, 6);
+			return n;
+		}
+		if (n < 0)
+			return n;
+	}
+	return 0;
+}
+
+/* Whether `fd` (a desk's socket, bound to its interface) receives a frame from `src` in `ms`. */
+static int desk_hears(int fd, const uint8_t src[6], int ms)
+{
+	uint8_t b[DIGINET_MAX_FRAME_LEN];
+	uint64_t end = diginet_clock_us() + (uint64_t)ms * 1000u;
+	while (diginet_clock_us() < end) {
+		int ifx;
+		int n = diginet_packet_recvfrom(fd, b, sizeof b, &ifx, 10);
+		if (n >= DIGINET_ETH_HDR_LEN && !memcmp(b + 6, src, 6))
+			return 1;
+	}
+	return 0;
+}
+
+static struct desk_emu EA, EB;
+static struct diginet_mux MUX;
+
+static void mux_notice(void *ctx, const struct diginet_mux_notice *n)
+{
+	(void)ctx;
+	if (n->kind == DIGINET_MUX_N_APPEARED)
+		CHK(diginet_mux_attach(&MUX, n->desk, NULL) == DIGINET_OK);
+}
+
+static void drain(int fd)
+{
+	uint8_t b[DIGINET_MAX_FRAME_LEN];
+	while (recv(fd, b, sizeof b, MSG_DONTWAIT) > 0)
+		;
+}
+
+/* Two desks through one mux over the one socket, on the real clock. */
+static void two_desks(int any, int desk_a, int desk_b, const uint8_t mac_a[6], const uint8_t mac_b[6],
+		      int ha, int hb)
+{
+	drain(desk_a);
+	drain(desk_b);
+	struct diginet_fd_io st;
+	struct diginet_mux_io io;
+	diginet_mux_io_packet(&io, &st, any);
+	CHK(diginet_mux_init(&MUX, NULL, &io, mux_notice, NULL) == DIGINET_OK);
+	emu_init(&EA, DESK_A, "CNTRL|24", "1.08");
+	emu_init(&EB, DESK_B, "MAINUNIT", "1.37");
+	struct diginet_cmd fa, fb;
+	CHK(diginet_fader_encode(diginet_personality_of(DIGINET_DESK_CONTROL24), 0, 100, &fa) == 0);
+	CHK(diginet_fader_encode(diginet_personality_of(DIGINET_DESK_PROCONTROL), 3, 900, &fb) == 0);
+	uint64_t na = 0, nb = 0, t0 = diginet_clock_us();
+	int sent = 0, a = -1, b = -1;
+	while (diginet_clock_us() - t0 < 3000000) {
+		emu_pump_fd(&EA, desk_a, &na, 7000000);
+		emu_pump_fd(&EB, desk_b, &nb, 7000000);
+		CHK(diginet_mux_poll(&MUX, 2) == 0);
+		a = diginet_mux_find(&MUX, DESK_A);
+		b = diginet_mux_find(&MUX, DESK_B);
+		struct diginet_session *sa = a >= 0 ? diginet_mux_session(&MUX, (unsigned)a) : NULL;
+		struct diginet_session *sb = b >= 0 ? diginet_mux_session(&MUX, (unsigned)b) : NULL;
+		if (!sent && sa && sb && sa->state == DIGINET_S_ONLINE && sb->state == DIGINET_S_ONLINE) {
+			CHK(diginet_session_submit(sa, &fa) == 0 && diginet_session_submit(sb, &fb) == 0);
+			sent = 1;
+		}
+		if (sent && emu_count_cmd(&EA, fa.bytes, fa.len) && emu_count_cmd(&EB, fb.bytes, fb.len) &&
+		    !sa->inflight && !sb->inflight)
+			break;
+	}
+	CHK(a >= 0 && b >= 0 && MUX.desks[a].ifindex == ha && MUX.desks[b].ifindex == hb);
+	CHK(sent && EA.wakes == 1 && EB.wakes == 1);
+	CHK(!memcmp(EA.session_mac, mac_a, 6) && !memcmp(EB.session_mac, mac_b, 6));
+	CHK(emu_count_cmd(&EA, fa.bytes, fa.len) == 1 && emu_count_cmd(&EB, fa.bytes, fa.len) == 0);
+	CHK(emu_count_cmd(&EB, fb.bytes, fb.len) == 1 && emu_count_cmd(&EA, fb.bytes, fb.len) == 0);
+	CHK(MUX.stats.rx_other_if == 0 && MUX.stats.appeared == 2);
+}
+
+/* diginet-probe --any, taking its socket from the helper, against the two desks. */
+static void probe_any(const char *helper, const char *probe, int desk_a, int desk_b, const uint8_t mac_a[6])
+{
+	static char out[1 << 16];
+	size_t outlen = 0;
+	int po[2];
+	drain(desk_a);
+	drain(desk_b);
+	emu_init(&EA, DESK_A, "CNTRL|24", "1.08");
+	emu_init(&EB, DESK_B, "MAINUNIT", "1.37");
+	CHK(pipe(po) == 0);
+	pid_t pid = fork();
+	if (pid == 0) {
+		int nul = open("/dev/null", O_RDONLY);
+		dup2(nul, 0);
+		dup2(po[1], 1);
+		dup2(po[1], 2);
+		for (int fd = 3; fd < 64; fd++)
+			close(fd);
+		execl(probe, probe, "--any", "--helper", helper, "--listen", "1", "--wait", "5", "--answer", "0",
+		      "--keepalive", "1", (char *)NULL);
+		_exit(127);
+	}
+	close(po[1]);
+	fcntl(po[0], F_SETFL, O_NONBLOCK);
+	/* the desks first announce once the probe listens: desk A, then desk B */
+	uint64_t t0 = diginet_clock_us(), na = t0 + 1000000, nb = t0 + 1300000;
+	int st = -1;
+	for (;;) {
+		ssize_t k;
+		while ((k = read(po[0], out + outlen, sizeof out - 1 - outlen)) > 0)
+			outlen += (size_t)k;
+		out[outlen] = '\0';
+		emu_pump_fd(&EA, desk_a, &na, 500000);
+		emu_pump_fd(&EB, desk_b, &nb, 500000);
+		if (waitpid(pid, &st, WNOHANG) == pid)
+			break;
+		if (diginet_clock_us() - t0 > 30000000) {
+			kill(pid, SIGKILL);
+			waitpid(pid, &st, 0);
+			break;
+		}
+		struct timespec ts = { 0, 1000000 };
+		nanosleep(&ts, NULL);
+	}
+	ssize_t k;
+	while ((k = read(po[0], out + outlen, sizeof out - 1 - outlen)) > 0)
+		outlen += (size_t)k;
+	out[outlen] = '\0';
+	close(po[0]);
+	char host[64];
+	snprintf(host, sizeof host, "attached: host %02x:%02x:%02x:%02x:%02x:%02x on hA", mac_a[0], mac_a[1],
+		 mac_a[2], mac_a[3], mac_a[4], mac_a[5]);
+	CHK(WIFEXITED(st) && WEXITSTATUS(st) == 0);
+	CHK(strstr(out, "the socket came from"));
+	CHK(strstr(out, "desk 00:a0:7e:24:00:0a appeared on hA") && strstr(out, "desk 00:a0:7e:24:00:0b appeared on hB"));
+	CHK(strstr(out, host));
+	CHK(strstr(out, "step 5: fader 1 to mid-travel: sent b0 00 40 20 00, ACKed"));
+	CHK(strstr(out, "SUMMARY any interface: desks appeared on hA hB"));
+	CHK(EA.wakes == 1 && EA.disconnects == 1 && EB.wakes == 0 && EB.nlog == 0);
+	if (fails)
+		fprintf(stderr, "--- diginet-probe --any said:\n%s---\n", out);
+}
+
+/* The child that keeps the namespace's capabilities: on a byte from the parent it makes hB/dB,
+ * opens a packet socket on dB and passes it back. */
+static void admin(int ch)
+{
+	char c;
+	if (read(ch, &c, 1) != 1)
+		_exit(1);
+	uint8_t mac[6];
+	if (ns_veth("hB", "dB") < 0)
+		_exit(2);
+	int fd = diginet_packet_open("dB", mac);
+	_exit(fd >= 0 && diginet_packet_send_fd(ch, fd) == 0 ? 0 : 3);
+}
+
+int main(int argc, char **argv)
+{
+	if (argc != 3) {
+		fprintf(stderr, "usage: test_anyif <diginet-packet-helper> <diginet-probe>\n");
+		return 2;
+	}
+	if (ns_enter() < 0) {
+		printf("test_anyif: no unprivileged user+net namespace (%s): nothing tested\n", strerror(errno));
+		return 77;
+	}
+	if (ns_veth("hA", "dA") < 0) {
+		printf("test_anyif: cannot make a veth pair in the namespace (%s): nothing tested\n", strerror(errno));
+		return 77;
+	}
+	uint8_t mac[6];
+	int desk_a = diginet_packet_open("dA", mac);
+	if (desk_a == -EPERM) {
+		printf("test_anyif: no CAP_NET_RAW in the namespace: nothing tested\n");
+		return 77;
+	}
+	CHK(desk_a >= 0);
+	/* A socket on hA that taps every protocol sees what it sends out of hA as outgoing; the
+	 * receive skips it, and what is left on hA is nothing. */
+	int tap = socket(AF_PACKET, SOCK_RAW | SOCK_CLOEXEC, htons(ETH_P_ALL));
+	struct sockaddr_ll sll;
+	memset(&sll, 0, sizeof sll);
+	sll.sll_family = AF_PACKET;
+	sll.sll_protocol = htons(ETH_P_ALL);
+	sll.sll_ifindex = (int)if_nametoindex("hA");
+	CHK(tap >= 0 && bind(tap, (struct sockaddr *)&sll, sizeof sll) == 0);
+	{
+		uint8_t f[DIGINET_MAX_FRAME_LEN], g[DIGINET_MAX_FRAME_LEN], hmac[6];
+		struct diginet_header h = { .cmd = DIGINET_CMD_WAKE };
+		CHK(diginet_if_mac(sll.sll_ifindex, hmac) == 0);
+		int n = diginet_frame_build(f, sizeof f, DESK_A, hmac, &h, NULL, 0, DIGINET_SUM_BODY);
+		/* sent by another socket: a packet socket is never handed what it sent itself */
+		int other = diginet_packet_open("hA", hmac);
+		CHK(other >= 0 && n > 0 && send(other, f, (size_t)n, 0) == n);
+		close(other);
+		/* The tap hears hA's other traffic too (IPv6 neighbour discovery): only our frame
+		 * must not come back. */
+		int ifx = -1, ours = 0;
+		uint64_t end = diginet_clock_us() + 200000;
+		while (diginet_clock_us() < end) {
+			int got = diginet_packet_recvfrom(tap, g, sizeof g, &ifx, 10);
+			ours += got == n && !memcmp(g, f, (size_t)n);
+		}
+		CHK(ours == 0);
+	}
+
+	int ch[2];
+	CHK(socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, ch) == 0);
+	pid_t kid = fork();
+	if (kid == 0) {
+		close(ch[0]);
+		admin(ch[1]);
+	}
+	close(ch[1]);
+
+	/* Unprivileged from here: the socket can only come from the helper. */
+	CHK(ns_drop_caps() == 0);
+	CHK(diginet_packet_open_any() == -EPERM);
+	CHK(diginet_packet_open("dA", mac) == -EPERM);
+	/* Descriptors 0 and 3 free: the socketpair inside is born as 0 and 3. */
+	int saved0 = fcntl(0, F_DUPFD_CLOEXEC, 20), saved3 = fcntl(3, F_DUPFD_CLOEXEC, 20);
+	close(0);
+	close(3);
+	int any = diginet_packet_open_by_helper(argv[1]);
+	if (any == 0 || any == 3) {
+		int moved = fcntl(any, F_DUPFD_CLOEXEC, 20);
+		close(any);
+		any = moved;
+	}
+	if (saved3 >= 0)
+		dup2(saved3, 3);
+	dup2(saved0, 0);
+	close(saved0);
+	if (saved3 >= 0)
+		close(saved3);
+	CHK(any >= 0);
+	if (any < 0 || desk_a < 0) {
+		fprintf(stderr, "test_anyif: the helper gave no socket (%s)\n", strerror(-any));
+		kill(kid, SIGKILL);
+		return 1;
+	}
+	int domain = 0;
+	socklen_t dl = sizeof domain;
+	CHK(getsockopt(any, SOL_SOCKET, SO_DOMAIN, &domain, &dl) == 0 && domain == AF_PACKET);
+
+	/* hB/dB comes up only now, after the socket was opened. */
+	CHK(write(ch[0], "B", 1) == 1);
+	int desk_b = diginet_packet_receive_fd(ch[0]);
+	int st = 0;
+	waitpid(kid, &st, 0);
+	CHK(desk_b >= 0 && WIFEXITED(st) && WEXITSTATUS(st) == 0);
+	if (desk_b < 0)
+		return 1;
+
+	int ha = (int)if_nametoindex("hA"), hb = (int)if_nametoindex("hB");
+	int da = (int)if_nametoindex("dA"), db = (int)if_nametoindex("dB");
+	CHK(ha > 0 && hb > 0 && ha != hb);
+	uint8_t mac_a[6], mac_b[6], want[6];
+	CHK(diginet_if_mac(ha, mac_a) == 0 && diginet_if_mac(hb, mac_b) == 0 && memcmp(mac_a, mac_b, 6));
+	struct ifreq ifr;
+	int ctl = socket(AF_INET, SOCK_DGRAM, 0);
+	memset(&ifr, 0, sizeof ifr);
+	strcpy(ifr.ifr_name, "hA");
+	CHK(ioctl(ctl, SIOCGIFHWADDR, &ifr) == 0);
+	memcpy(want, ifr.ifr_hwaddr.sa_data, 6);
+	close(ctl);
+	CHK(!memcmp(mac_a, want, 6));
+	CHK(diginet_if_mac(0, mac_a) == -EINVAL);
+	CHK(diginet_if_mac(9999, want) == -ENODEV);
+
+	/* Each desk's announce comes in named by the host interface it arrived on. Our own frames
+	 * (on hA and hB as outgoing) are never handed back; the desk's frame leaving dA is seen on
+	 * dA as outgoing and skipped too. */
+	uint8_t src[6];
+	int ifx = -1;
+	CHK(announce(desk_a, DESK_A) == 0);
+	CHK(next_frame(any, 500, src, &ifx) > 0 && !memcmp(src, DESK_A, 6) && ifx == ha);
+	CHK(next_frame(any, 100, src, &ifx) == 0);
+	CHK(announce(desk_b, DESK_B) == 0);
+	CHK(next_frame(any, 500, src, &ifx) > 0 && !memcmp(src, DESK_B, 6) && ifx == hb);
+	CHK(next_frame(any, 100, src, &ifx) == 0);
+
+	/* A frame sent to hA's index goes out of hA only, to dA; one to hB's out of hB only. */
+	uint8_t f[DIGINET_MAX_FRAME_LEN];
+	struct diginet_header h = { .cmd = DIGINET_CMD_WAKE };
+	int n = diginet_frame_build(f, sizeof f, DESK_A, mac_a, &h, NULL, 0, DIGINET_SUM_BODY);
+	CHK(n > 0 && diginet_packet_sendto(any, ha, f, (size_t)n) == 0);
+	CHK(desk_hears(desk_a, mac_a, 500));
+	CHK(!desk_hears(desk_b, mac_a, 100));
+	/* what arrived on dA is no frame of ours to the unbound socket: it came in on dA, from hA's
+	 * MAC; the mux sets such a frame aside by its source, the socket hands it over */
+	CHK(next_frame(any, 200, src, &ifx) > 0 && !memcmp(src, mac_a, 6) && ifx == da);
+	n = diginet_frame_build(f, sizeof f, DESK_B, mac_b, &h, NULL, 0, DIGINET_SUM_BODY);
+	CHK(n > 0 && diginet_packet_sendto(any, hb, f, (size_t)n) == 0);
+	CHK(desk_hears(desk_b, mac_b, 500));
+	CHK(!desk_hears(desk_a, mac_b, 100));
+	CHK(next_frame(any, 200, src, &ifx) > 0 && !memcmp(src, mac_b, 6) && ifx == db);
+
+	/* Two packet sockets in one message are refused, and both closed. */
+	{
+		int sv[2], two[2] = { dup(any), dup(desk_a) };
+		CHK(socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, sv) == 0);
+		char data = 'F';
+		struct iovec iov = { .iov_base = &data, .iov_len = 1 };
+		union {
+			struct cmsghdr h;
+			char buf[CMSG_SPACE(2 * sizeof(int))];
+		} c;
+		memset(&c, 0, sizeof c);
+		struct msghdr m = { .msg_iov = &iov, .msg_iovlen = 1, .msg_control = c.buf,
+				    .msg_controllen = sizeof c.buf };
+		struct cmsghdr *hd = CMSG_FIRSTHDR(&m);
+		hd->cmsg_level = SOL_SOCKET;
+		hd->cmsg_type = SCM_RIGHTS;
+		hd->cmsg_len = CMSG_LEN(2 * sizeof(int));
+		memcpy(CMSG_DATA(hd), two, sizeof two);
+		CHK(sendmsg(sv[0], &m, 0) == 1);
+		close(two[0]);
+		close(two[1]);
+		int lowest = fcntl(0, F_DUPFD, 0);
+		close(lowest);
+		CHK(diginet_packet_receive_fd(sv[1]) == -EPROTO);
+		CHK(fcntl(lowest, F_GETFD) < 0 && fcntl(lowest + 1, F_GETFD) < 0);
+		close(sv[0]);
+		close(sv[1]);
+	}
+
+	two_desks(any, desk_a, desk_b, mac_a, mac_b, ha, hb);
+	probe_any(argv[1], argv[2], desk_a, desk_b, mac_a);
+
+	/* sendto's refusals */
+	CHK(diginet_packet_sendto(any, 0, f, (size_t)n) == -EINVAL);
+	CHK(diginet_packet_sendto(any, ha, f, DIGINET_ETH_HDR_LEN - 1) == -EINVAL);
+	CHK(diginet_packet_sendto(any, 9999, f, (size_t)n) == -ENXIO ||
+	    diginet_packet_sendto(any, 9999, f, (size_t)n) == -ENODEV);
+
+	if (fails) {
+		fprintf(stderr, "test_anyif: %d failure(s)\n", fails);
+		return 1;
+	}
+	printf("test_anyif: ok (the helper's socket, unprivileged, on two veth pairs, one made after it; two desks through one mux; diginet-probe --any)\n");
+	return 0;
+}

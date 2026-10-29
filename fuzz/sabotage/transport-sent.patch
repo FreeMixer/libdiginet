@@ -1,4 +1,4 @@
-Breaks the check of fuzz/fuzz_transport.c:424 (the queue and the frame builder both stop refusing F0 13 xx 70, so two commands make one).
+Breaks the check of fuzz/fuzz_transport.c:443 (the queue and the frame builder both stop refusing F0 13 xx 70, so two commands make one).
 Caught by the seed input "split-system" of fuzz_transport.
 
 diff --git a/src/diginet_frame.c b/src/diginet_frame.c
