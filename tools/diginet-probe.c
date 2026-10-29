@@ -35,7 +35,8 @@ static struct {
 	unsigned acked, lost;
 	int vpot1_sum, jog_sum;
 	int fader1_min, fader1_max, fader1_last;
-	unsigned e0_after_online;
+	unsigned lost_online;          /* sessions that ended while online, not by us */
+	enum diginet_reason lost_why;
 	uint64_t last_keepalive_us, max_ka_gap_at_e0;
 	/* touch test */
 	int touch_test, touched, touch_seen, release_seen;
@@ -161,12 +162,9 @@ static void on_notice(void *ctx, const struct diginet_notice *n)
 				say("e1 names this host at body offset %d", n->mac_offset);
 			}
 		}
-		if (n->frame->h.cmd == DIGINET_CMD_ANNOUNCE && R.online) {
-			R.e0_after_online++;
-			uint64_t gap = diginet_clock_us() - R.last_keepalive_us;
+		if (n->frame->h.cmd == DIGINET_CMD_ANNOUNCE && R.online && P->announces_session)
 			say("desk announced e0 while in session, %.1f s after our last keepalive",
-			    (double)gap / 1e6);
-		}
+			    (double)(diginet_clock_us() - R.last_keepalive_us) / 1e6);
 		break;
 	case DIGINET_N_FOREIGN:
 		if (!R.foreign)
@@ -181,6 +179,13 @@ static void on_notice(void *ctx, const struct diginet_notice *n)
 			R.last_keepalive_us = diginet_clock_us();
 		} else if (n->old_state == DIGINET_S_ONLINE) {
 			R.online = 0;
+			if (n->reason != DIGINET_R_CLOSED) {
+				R.lost_online++;
+				R.lost_why = n->reason;
+				say("session lost while online (%s), %.1f s after our last keepalive",
+				    diginet_reason_name(n->reason),
+				    (double)(diginet_clock_us() - R.last_keepalive_us) / 1e6);
+			}
 		}
 		break;
 	case DIGINET_N_ACKED:
@@ -236,6 +241,14 @@ static int run_until(int (*cond)(void), unsigned ms)
 	while (!stop && !cond() && diginet_clock_us() < end)
 		run_for(10);
 	return cond();
+}
+
+/* How the session came online: the e1 is reported only when the desk sent one. */
+static const char *online_how(void)
+{
+	if (R.e1_offset < 0)
+		return "a0 alone, no e1";
+	return R.e1_before_ack ? "e1 before a0" : "a0 then e1";
 }
 
 static int c_desk(void) { return R.desk_seen && (R.foreign || S.state != DIGINET_S_IDLE || !S.cfg.auto_wake); }
@@ -409,15 +422,14 @@ int main(int argc, char **argv)
 		say("RESULT: e2 refused");
 		return R.foreign ? EXIT_FOREIGN : EXIT_NO_DESK;
 	}
-	say("step 3: waiting for a0 and an e1 naming this host");
+	say("step 3: waiting for the desk to take the session (a0, and an e1 where it announces one)");
 	if (!run_until(c_online, 5000) || R.foreign) {
 		say("RESULT: the desk did not come online (a0 %s, e1 naming us %s)",
 		    R.acked_wake ? "seen" : "missing", R.e1_offset >= 0 ? "seen" : "missing");
 		diginet_session_close(&S, diginet_clock_us());
 		return R.foreign ? EXIT_FOREIGN : EXIT_NO_DESK;
 	}
-	say("online: %s, host MAC at e1 body offset %d", R.e1_before_ack ? "e1 before a0" : "a0 then e1",
-	    R.e1_offset);
+	say("online: %s, host MAC at e1 body offset %d", online_how(), R.e1_offset);
 	say("step 4: keepalive every %u s, independent of ACKs", keepalive_s);
 
 	struct diginet_cmd c;
@@ -459,8 +471,7 @@ int main(int argc, char **argv)
 	diginet_session_close(&S, diginet_clock_us());
 
 	say("SUMMARY desk: \"%s\" version \"%s\" (R1)", R.name, R.version);
-	say("SUMMARY online: %s, host MAC at e1 body offset %d (A6)",
-	    R.e1_before_ack ? "e1 before a0" : "a0 then e1", R.e1_offset);
+	say("SUMMARY online: %s, host MAC at e1 body offset %d (A6)", online_how(), R.e1_offset);
 	say("SUMMARY checksum %s: fader frame %s (R3)", cfg.sum_mode == DIGINET_SUM_ZERO ? "zero" : "sum",
 	    fader_acked ? "ACKed" : "NOT ACKed");
 	say("SUMMARY scribble 0x00: %s; 0x20: %s (R6)", ans00[0] ? ans00 : "(not answered)",
@@ -470,8 +481,9 @@ int main(int argc, char **argv)
 	    R.frames, R.cmds, R.running, R.keys, R.touches, R.fader_moves, R.vpot_turns, R.jog_turns, R.other);
 	say("SUMMARY fader 1 range %d..%d, V-Pot 1 net %+d, jog net %+d", R.fader1_min, R.fader1_max,
 	    R.vpot1_sum, R.jog_sum);
-	say("SUMMARY keepalive %u s: desk fell back to e0 %u time(s) while in session (R5)", keepalive_s,
-	    R.e0_after_online);
+	say("SUMMARY keepalive %u s: session lost %u time(s) while online%s%s%s (R5)", keepalive_s,
+	    R.lost_online, R.lost_online ? " (last: " : "",
+	    R.lost_online ? diginet_reason_name(R.lost_why) : "", R.lost_online ? ")" : "");
 	say("SUMMARY our frames ACKed %u, lost %u, retransmits %llu, desk retries %llu (R8)", R.acked, R.lost,
 	    (unsigned long long)S.stats.tx_retransmits, (unsigned long long)S.stats.rx_desk_retries);
 	if (R.touch_test) {

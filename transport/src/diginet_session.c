@@ -42,13 +42,14 @@ const char *diginet_reason_name(enum diginet_reason r)
 	switch (r) {
 	case DIGINET_R_NONE:            return "none";
 	case DIGINET_R_WAKE:            return "wake sent";
-	case DIGINET_R_ONLINE:          return "ack and e1 naming this host";
+	case DIGINET_R_ONLINE:          return "desk took the session";
 	case DIGINET_R_DESK_OFFLINE:    return "desk announced e0";
 	case DIGINET_R_SILENCE:         return "silence";
 	case DIGINET_R_FOREIGN:         return "desk in session with another host";
-	case DIGINET_R_WAKE_TIMEOUT:    return "no answer to e2";
+	case DIGINET_R_WAKE_TIMEOUT:    return "not online after e2";
 	case DIGINET_R_DESK_DISCONNECT: return "desk sent e3";
 	case DIGINET_R_CLOSED:          return "host sent e3";
+	case DIGINET_R_ACK_LOST:        return "desk stopped ACKing";
 	}
 	return "?";
 }
@@ -173,9 +174,17 @@ static int find_mac(const struct diginet_announce *a, const uint8_t mac[DIGINET_
 	return -1;
 }
 
+/* Whether the desk always announces its session in e1: a ProControl does; a Control|24 announces
+ * it in e0 after a boot and in e1 at other times (docs/protocol.md, "Discovery and handshake"),
+ * so its a0 is the online proof. A desk no personality describes is held to e1. */
+static int announces_e1(const struct diginet_session *s)
+{
+	return !s->personality || s->personality->announces_session;
+}
+
 static void maybe_online(struct diginet_session *s)
 {
-	if (s->state == DIGINET_S_WAKING && s->wake_acked && s->e1_named_us) {
+	if (s->state == DIGINET_S_WAKING && s->wake_acked && (s->e1_named_us || !announces_e1(s))) {
 		s->next_keepalive_us = s->last_rx_us + ms(s->cfg.keepalive_ms);
 		set_state(s, DIGINET_S_ONLINE, DIGINET_R_ONLINE);
 	}
@@ -199,7 +208,7 @@ static void on_announce(struct diginet_session *s, const struct diginet_frame *f
 
 	if (f->h.cmd == DIGINET_CMD_ANNOUNCE) {
 		s->foreign = 0;
-		if (s->state == DIGINET_S_ONLINE)
+		if (s->state == DIGINET_S_ONLINE && s->e1_named_us)
 			session_lost(s, DIGINET_R_DESK_OFFLINE);
 		if (s->state == DIGINET_S_IDLE && s->cfg.auto_wake)
 			diginet_session_wake(s, now);
@@ -439,6 +448,11 @@ int diginet_session_tick(struct diginet_session *s, uint64_t now)
 						    .counter = s->inflight_counter,
 						    .retry = (uint16_t)s->inflight_retries };
 			s->notify(s->notify_ctx, &n);
+			/* A session the desk never announced in e1 shows its loss only by not ACKing. */
+			if (s->state == DIGINET_S_ONLINE && !s->e1_named_us) {
+				session_lost(s, DIGINET_R_ACK_LOST);
+				return DIGINET_OK;
+			}
 		}
 	}
 

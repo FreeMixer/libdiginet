@@ -113,11 +113,14 @@ static void run(uint64_t us, uint64_t step, void (*each)(void))
 }
 
 static struct diginet_session_config cfg;
+/* The desk the emulator is: a ProControl announces e1 in session, which the tests of the e1
+ * rule need; test_control24 makes it a Control|24. */
+static const char *desk_name = "MAINUNIT";
 
 static void start_with(void (*tweak)(struct diginet_session_config *))
 {
 	struct diginet_io io = { .ctx = NULL, .send = io_send, .recv = NULL, .now_us = io_now };
-	emu_init(&E, DESK_MAC, "CNTRL|24", "1.37");
+	emu_init(&E, DESK_MAC, desk_name, "1.37");
 	diginet_session_config_default(&cfg);
 	memcpy(cfg.host_mac, HOST_MAC, 6);
 	if (tweak)
@@ -191,7 +194,7 @@ static void test_online(void)
 	start();
 	go_online();
 	CHK(E.wakes == 1 && E.in_session && !memcmp(E.session_mac, HOST_MAC, 6));
-	CHK(S_->personality && S_->personality->desk == DIGINET_DESK_CONTROL24);
+	CHK(S_->personality && S_->personality->desk == DIGINET_DESK_PROCONTROL);
 	/* The order of what the host saw: e0, our e2, its a0, the e1 naming us, ONLINE. */
 	int i = 0;
 	CHK(nlog[i].kind == DIGINET_N_DESK && nlog[i].mac_offset == -1); i++;
@@ -655,6 +658,64 @@ static void test_close_and_filters(void)
 	CHK(E.acks_from_host == acks && data_frames == 0);
 }
 
+/* ---- 10 ------------------------------------------------------------------------------ */
+
+/* A Control|24 takes the session on the a0 and keeps announcing e0 (docs/protocol.md,
+ * "Discovery and handshake"): online with no e1, its e0 no loss, and a session it dropped
+ * found by the host frame it no longer ACKs. */
+static void test_control24(void)
+{
+	desk_name = "CNTRL|24";
+	start();
+	go_online();
+	CHK(S_->personality && S_->personality->desk == DIGINET_DESK_CONTROL24);
+	CHK(find_state(DIGINET_S_ONLINE, DIGINET_R_ONLINE) >= 0 && ndesk == 1 && desk_offsets[0] == -1);
+
+	/* Its e0 announces and our keepalives go on: still the one session. */
+	unsigned ka = E.keepalives;
+	run(25 * S, 10 * MS, NULL);
+	CHK(S_->state == DIGINET_S_ONLINE && E.wakes == 1 && E.keepalives >= ka + 2 && ndesk >= 4);
+	CHK(find_state(DIGINET_S_IDLE, DIGINET_R_DESK_OFFLINE) < 0);
+
+	/* The desk drops the session, as a reboot does: the next keepalive goes unACKed, the
+	 * session ends, and the next e0 wakes the desk again. */
+	emu_drop_session(&E);
+	run(20 * S, 10 * MS, NULL);
+	int i = find_state(DIGINET_S_IDLE, DIGINET_R_ACK_LOST);
+	CHK(i >= 0 && i > 0 && nlog[i - 1].kind == DIGINET_N_ACK_LOST);
+	CHK(E.wakes == 2 && S_->state == DIGINET_S_ONLINE);
+
+	/* A Control|24 that announces its session in e1 naming us: its e0 then ends the session,
+	 * as a ProControl's does. */
+	start();
+	E.announces_session = 1;
+	go_online();
+	CHK(S_->e1_named_us && E.wakes == 1);
+	emu_drop_session(&E);
+	emu_announce(&E, now);
+	pump();
+	CHK(find_state(DIGINET_S_IDLE, DIGINET_R_DESK_OFFLINE) >= 0 && find_state(DIGINET_S_IDLE, DIGINET_R_ACK_LOST) < 0);
+	CHK(E.wakes == 2 && S_->state == DIGINET_S_ONLINE);
+
+	/* A ProControl that loses an ACK keeps its session: its e0 is what ends one. */
+	desk_name = "MAINUNIT";
+	start();
+	go_online();
+	E.drop_acks = 6;
+	run(11 * S, 10 * MS, NULL);
+	CHK(count_kind(DIGINET_N_ACK_LOST) == 1 && find_state(DIGINET_S_IDLE, DIGINET_R_ACK_LOST) < 0);
+	CHK(S_->state == DIGINET_S_ONLINE);
+
+	/* A desk no personality describes is held to e1: an a0 alone does not bring it online. */
+	desk_name = "SOMEDESK";
+	start();
+	E.announces_session = 0;
+	run(10 * S, 1 * MS, NULL);
+	CHK(E.wakes >= 1 && find_state(DIGINET_S_ONLINE, DIGINET_R_ONLINE) < 0);
+	CHK(find_state(DIGINET_S_IDLE, DIGINET_R_WAKE_TIMEOUT) >= 0);
+	desk_name = "MAINUNIT";
+}
+
 int main(void)
 {
 	C24 = diginet_personality_of(DIGINET_DESK_CONTROL24);
@@ -667,6 +728,7 @@ int main(void)
 	test_foreign();
 	test_sum();
 	test_close_and_filters();
+	test_control24();
 	if (fails) {
 		fprintf(stderr, "test_transport: %d failure(s)\n", fails);
 		return 1;
