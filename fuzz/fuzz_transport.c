@@ -106,12 +106,12 @@
  * contract: protocol/diginet.ksy `header` `retry` (u2); docs/protocol.md:41 */
 #define RETRY_AT    (SPEC_ETH_HDR + 12)
 
-/* The states, the reasons and the notices. contract: diginet_session.h:52-71, :97-106 */
+/* The states, the reasons and the notices. contract: diginet_session.h:53-74, :100-109 */
 enum { S_IDLE = 0, S_WAKING, S_ONLINE, S_CLOSED };
 enum { R_NONE = 0, R_WAKE, R_ONLINE, R_DESK_OFFLINE, R_SILENCE, R_FOREIGN, R_WAKE_TIMEOUT,
        R_DESK_DISCONNECT, R_CLOSED, R_ACK_LOST, R_RENEWED };
 enum { N_DESK = 1, N_STATE, N_DATA, N_ACKED, N_ACK_LOST, N_FOREIGN, N_DESK_DEAF };
-/* The queue holds 512 commands. contract: diginet_session.h:130 */
+/* The queue holds 512 commands. contract: diginet_session.h:133 */
 #define QUEUE_MAX   512
 
 static const uint8_t HOST[SPEC_MAC]  = { 0x02, 0x00, 0x00, 0x00, 0x00, 0x01 };
@@ -239,7 +239,7 @@ static void m_lost(int why)
 	m_set(S_IDLE, why);
 }
 
-/* diginet_session.h:193-195: the code a wake owes, and the e2 it sends */
+/* diginet_session.h:196-198: the code a wake owes, and the e2 it sends */
 static int m_wake(void)
 {
 	if (!M.desk_known)
@@ -276,9 +276,9 @@ static void m_maybe_online(void)
 	}
 }
 
-/* the timeouts of a tick: no answer to e2, silence (diginet_session.h:9, :67, :65); a wake
+/* the timeouts of a tick: no answer to e2, silence (diginet_session.h:9, :68, :66); a wake
  * that times out while the desk announced within offline_ms counts toward a deaf desk, any
- * other ends the count, and the deaf_wakes-th is reported (diginet_session.h:28-33, :104) */
+ * other ends the count, and the deaf_wakes-th is reported (diginet_session.h:29-34, :107) */
 static void m_tick(void)
 {
 	if (M.state == S_WAKING && g_now - M.wake_sent >= ms(g_cfg.wake_timeout_ms)) {
@@ -325,7 +325,7 @@ static const struct spec_desk *desk_named(const uint8_t *body)
 
 /* One frame received. The session reads only a frame of the grammar, from someone else, to
  * this host or to everyone; from the desk it knows, or, while it knows none, an announce from
- * a Digidesign MAC, which names the desk (docs/protocol.md:27, :31; diginet_session.h:75).
+ * a Digidesign MAC, which names the desk (docs/protocol.md:27, :31; diginet_session.h:78).
  * Nothing is read once the session is closed. Returns 1 when the session reads the frame,
  * which ends with a tick. */
 static int m_rx(const uint8_t *frame, size_t n)
@@ -367,7 +367,7 @@ static int m_rx(const uint8_t *frame, size_t n)
 		if (f.cmd == SPEC_CMD_E0) {
 			/* ONLINE --(e0 once an e1 named this host)--> IDLE; a Control|24 online with no
 			 * e1 yet is owed an e2 in the frame slot, with no state change; auto_wake sends e2
-			 * on an e0 (diginet_session.h:9-10, :77) */
+			 * on an e0 (diginet_session.h:9-10, :80) */
 			M.foreign = 0;
 			if (M.state == S_ONLINE && M.e1_us)
 				m_lost(R_DESK_OFFLINE);
@@ -377,7 +377,7 @@ static int m_rx(const uint8_t *frame, size_t n)
 				m_wake();
 		} else if (off >= 0) {
 			/* an e1 naming this host: our own session, which auto_wake takes again from
-			 * IDLE, as after a restart the desk still announces it (diginet_session.h:7, :77) */
+			 * IDLE, as after a restart the desk still announces it (diginet_session.h:7, :80) */
 			M.foreign = 0;
 			if (M.state == S_IDLE && g_cfg.auto_wake)
 				m_wake();
@@ -390,12 +390,12 @@ static int m_rx(const uint8_t *frame, size_t n)
 			m_maybe_online();
 		} else if (g_cfg.n_other_host_macs && other_offset(f.body) >= 0) {
 			/* an e1 naming another MAC of this host: its own session on another interface,
-			 * no foreign one, which auto_wake takes again from IDLE (diginet_session.h:24-27) */
+			 * no foreign one, which auto_wake takes again from IDLE (diginet_session.h:25-28) */
 			M.foreign = 0;
 			if (M.state == S_IDLE && g_cfg.auto_wake)
 				m_wake();
 		} else {
-			/* an e1 naming another host ends ours (diginet_session.h:9, :66, :103) */
+			/* an e1 naming another host ends ours (diginet_session.h:9, :67, :106) */
 			M.foreign = 1;
 			M.deaf = 0;
 			OW.foreign++;
@@ -420,7 +420,7 @@ static int m_rx(const uint8_t *frame, size_t n)
 	case SPEC_CMD_DATA:
 		/* ACKed at once; a desk retry holds the host back; a retransmission of the frame
 		 * just delivered is not delivered again; a keepalive is not delivered
-		 * (diginet_session.h:14, :18, :100) */
+		 * (diginet_session.h:15, :19, :103) */
 		OW.acks++;
 		M.fail = 0;
 		if (f.retry)
@@ -450,7 +450,7 @@ static int m_rx(const uint8_t *frame, size_t n)
 	return 1;
 }
 
-/* diginet_session.h:197-198 */
+/* diginet_session.h:200-201 */
 static void m_close(void)
 {
 	if (M.desk_known && !M.foreign && M.state != S_CLOSED) {
@@ -476,7 +476,7 @@ FUZZ_CHECK check_sent_frame(const uint8_t *frame, size_t len, const struct spec_
 	/* A frame the session sends is a frame of the grammar, from this host to the desk it
 	 * knows, and carries no system family.
 	 * contract: protocol/diginet.ksy seq; docs/protocol.md:31, :140-144; diginet.h:113-114
-	 * mutant: transport/src/diginet_session.c:106 `s->desk_mac, s->cfg.host_mac` -> `s->cfg.host_mac, s->desk_mac`
+	 * mutant: transport/src/diginet_session.c:107 `s->desk_mac, s->cfg.host_mac` -> `s->cfg.host_mac, s->desk_mac`
 	 * input: online */
 	if (f->code != SPEC_OK || memcmp(f->src, HOST, SPEC_MAC) || !M.desk_known ||
 	    memcmp(f->dst, M.desk, SPEC_MAC) || spec_system_at(f->body, f->body_len) >= 0)
@@ -487,8 +487,8 @@ FUZZ_CHECK check_sent_frame(const uint8_t *frame, size_t len, const struct spec_
 		zeros &= frame[i] == 0;
 	/* It is padded with zeros to 60 bytes, and its header sum is the body's, or zero in the
 	 * zero-sum mode.
-	 * contract: docs/protocol.md:30, :38; diginet_session.h:78
-	 * mutant: transport/src/diginet_session.c:462 `s->cfg.sum_mode` -> `DIGINET_SUM_ZERO`
+	 * contract: docs/protocol.md:30, :38; diginet_session.h:81
+	 * mutant: transport/src/diginet_session.c:471 `s->cfg.sum_mode` -> `DIGINET_SUM_ZERO`
 	 * input: coalesce */
 	if (len != n || !zeros ||
 	    f->sum != (g_cfg.sum_mode == DIGINET_SUM_ZERO ? 0 : spec_sum(f->body, f->body_len)))
@@ -498,8 +498,8 @@ FUZZ_CHECK check_sent_frame(const uint8_t *frame, size_t len, const struct spec_
 FUZZ_CHECK check_ack_frame(const struct spec_frame *f)
 {
 	/* The ACK echoes the send counter of the frame it answers, and has no body.
-	 * contract: diginet_session.h:14; docs/protocol.md:40, :56
-	 * mutant: transport/src/diginet_session.c:310 `f->h.send_counter` -> `f->h.ack_counter`
+	 * contract: diginet_session.h:15; docs/protocol.md:40, :56
+	 * mutant: transport/src/diginet_session.c:319 `f->h.send_counter` -> `f->h.ack_counter`
 	 * input: data-acked */
 	if (f->ack != g_rx_send || f->body_len != 0 || f->retry != 0)
 		abort();
@@ -508,16 +508,16 @@ FUZZ_CHECK check_ack_frame(const struct spec_frame *f)
 FUZZ_CHECK check_inflight_new(void)
 {
 	/* A data frame goes only while online, and only when no frame is in flight.
-	 * contract: diginet_session.h:15, :190
-	 * mutant: transport/src/diginet_session.c:527 `s->state != DIGINET_S_ONLINE || s->inflight` -> `s->inflight`
+	 * contract: diginet_session.h:16, :193
+	 * mutant: transport/src/diginet_session.c:536 `s->state != DIGINET_S_ONLINE || s->inflight` -> `s->inflight`
 	 * input: online
-	 * mutant: transport/src/diginet_session.c:527 `s->inflight || now < s->backoff_until_us` -> `now < s->backoff_until_us`
+	 * mutant: transport/src/diginet_session.c:536 `s->inflight || now < s->backoff_until_us` -> `now < s->backoff_until_us`
 	 * input: batches */
 	if (M.state != S_ONLINE || M.fly.on)
 		abort();
 	/* A data frame never goes while a back-off after a desk retry holds.
-	 * contract: diginet_session.h:17-18
-	 * mutant: transport/src/diginet_session.c:527 `now < s->backoff_until_us` -> `(now < s->backoff_until_us && now >= s->next_keepalive_us)`
+	 * contract: diginet_session.h:18-19
+	 * mutant: transport/src/diginet_session.c:536 `now < s->backoff_until_us` -> `(now < s->backoff_until_us && now >= s->next_keepalive_us)`
 	 * input: backoff-exact */
 	if (g_now < M.backoff_until)
 		abort();
@@ -527,23 +527,23 @@ FUZZ_CHECK check_inflight_retry(const uint8_t *frame, size_t len, const struct s
 {
 	/* A retransmission is the frame in flight again: each byte of the frame that first went,
 	 * but the two of its retry field.
-	 * contract: diginet_session.h:15-16; protocol/diginet.ksy `header` `retry`
-	 * mutant: transport/src/diginet_session.c:131 `0, e2,` -> `0, s->inflight_frame,`
+	 * contract: diginet_session.h:16-17; protocol/diginet.ksy `header` `retry`
+	 * mutant: transport/src/diginet_session.c:132 `0, e2,` -> `0, s->inflight_frame,`
 	 * input: wake-fails-in-flight
-	 * mutant: transport/src/diginet_session.c:475 `DIGINET_ETH_HDR_LEN + 12` -> `DIGINET_ETH_HDR_LEN + 15`
+	 * mutant: transport/src/diginet_session.c:484 `DIGINET_ETH_HDR_LEN + 12` -> `DIGINET_ETH_HDR_LEN + 15`
 	 * input: retransmit-data */
 	if (!M.fly.on || len != M.fly.len || len < RETRY_AT + 2 || memcmp(frame, M.fly.frame, RETRY_AT) ||
 	    memcmp(frame + RETRY_AT + 2, M.fly.frame + RETRY_AT + 2, len - RETRY_AT - 2))
 		abort();
 	/* Its retry field counts the retransmissions, 1, 2, ..., never past max_retries.
-	 * contract: diginet_session.h:15-16; docs/protocol.md:41
-	 * mutant: transport/src/diginet_session.c:507 `s->inflight_retries < s->cfg.max_retries` -> `s->inflight_retries <= s->cfg.max_retries`
+	 * contract: diginet_session.h:16-17; docs/protocol.md:41
+	 * mutant: transport/src/diginet_session.c:516 `s->inflight_retries < s->cfg.max_retries` -> `s->inflight_retries <= s->cfg.max_retries`
 	 * input: wake-unanswered */
 	if (f->retry != M.fly.retries + 1 || f->retry > g_cfg.max_retries)
 		abort();
 	/* It goes no sooner than ack_timeout after the frame last went.
-	 * contract: diginet_session.h:15-16
-	 * mutant: transport/src/diginet_session.c:506 `>= ms(s->cfg.ack_timeout_ms)` -> `>= ms(s->cfg.ack_timeout_ms) / 2`
+	 * contract: diginet_session.h:16-17
+	 * mutant: transport/src/diginet_session.c:515 `>= ms(s->cfg.ack_timeout_ms)` -> `>= ms(s->cfg.ack_timeout_ms) / 2`
 	 * input: retry-timing */
 	if (g_now - M.fly.sent < ms(g_cfg.ack_timeout_ms))
 		abort();
@@ -552,8 +552,8 @@ FUZZ_CHECK check_inflight_retry(const uint8_t *frame, size_t len, const struct s
 FUZZ_CHECK check_inflight_acked(const struct diginet_notice *n)
 {
 	/* DIGINET_N_ACKED comes for the ACK of the frame in flight, and names it.
-	 * contract: diginet_session.h:101
-	 * mutant: transport/src/diginet_session.c:298 `.counter = f->h.ack_counter` -> `.counter = f->h.ack_counter + 1`
+	 * contract: diginet_session.h:104
+	 * mutant: transport/src/diginet_session.c:307 `.counter = f->h.ack_counter` -> `.counter = f->h.ack_counter + 1`
 	 * input: online */
 	if (GOT.acked > OW.acked || n->counter != OW.acked_counter || n->retry != OW.acked_retry)
 		abort();
@@ -562,8 +562,8 @@ FUZZ_CHECK check_inflight_acked(const struct diginet_notice *n)
 FUZZ_CHECK check_inflight_lost(const struct diginet_notice *n)
 {
 	/* DIGINET_N_ACK_LOST comes for the frame in flight after exactly max_retries.
-	 * contract: diginet_session.h:16, :102
-	 * mutant: transport/src/diginet_session.c:516 `.retry = (uint16_t)s->inflight_retries` -> `.retry = 0`
+	 * contract: diginet_session.h:17, :105
+	 * mutant: transport/src/diginet_session.c:525 `.retry = (uint16_t)s->inflight_retries` -> `.retry = 0`
 	 * input: wake-unanswered */
 	if (!M.fly.on || n->counter != M.fly.counter || M.fly.retries != g_cfg.max_retries ||
 	    n->retry != g_cfg.max_retries)
@@ -574,10 +574,10 @@ FUZZ_CHECK check_state_online(void)
 {
 	/* ONLINE only after the desk's a0 for the e2 and, from a desk that announces e1, an e1
 	 * naming this host since that e2.
-	 * contract: diginet_session.h:8, :63; docs/protocol.md:49
-	 * mutant: transport/src/diginet_session.c:227 `s->wake_acked && ` -> ``
+	 * contract: diginet_session.h:8, :64; docs/protocol.md:49
+	 * mutant: transport/src/diginet_session.c:228 `s->wake_acked && ` -> ``
 	 * input: e1-before-ack
-	 * mutant: transport/src/diginet_session.c:227 `(s->e1_named_us || !announces_e1(s))` -> `(s->e1_named_us || 1)`
+	 * mutant: transport/src/diginet_session.c:228 `(s->e1_named_us || !announces_e1(s))` -> `(s->e1_named_us || 1)`
 	 * input: online */
 	if (!M.e2_acked || (!M.e1_us && m_announces_e1()))
 		abort();
@@ -586,8 +586,8 @@ FUZZ_CHECK check_state_online(void)
 FUZZ_CHECK check_state_wake(void)
 {
 	/* Never an e2 while the desk's latest announce is a session with another host.
-	 * contract: diginet_session.h:23, :193-194
-	 * mutant: transport/src/diginet_session.c:162 `if (s->foreign)` -> `if (s->foreign && s->state == DIGINET_S_ONLINE)`
+	 * contract: diginet_session.h:24, :196-197
+	 * mutant: transport/src/diginet_session.c:163 `if (s->foreign)` -> `if (s->foreign && s->state == DIGINET_S_ONLINE)`
 	 * input: wake-foreign */
 	if (M.foreign)
 		abort();
@@ -596,8 +596,8 @@ FUZZ_CHECK check_state_wake(void)
 FUZZ_CHECK check_state_wake_code(int rc, int want)
 {
 	/* A wake is refused while another host holds the desk, and with no desk known.
-	 * contract: diginet_session.h:193-195
-	 * mutant: transport/src/diginet_session.c:164 `return DIGINET_E_REFUSED;` -> `return DIGINET_E_ARG;`
+	 * contract: diginet_session.h:196-198
+	 * mutant: transport/src/diginet_session.c:165 `return DIGINET_E_REFUSED;` -> `return DIGINET_E_ARG;`
 	 * input: wake-foreign */
 	if (rc != want)
 		abort();
@@ -607,16 +607,16 @@ FUZZ_CHECK check_state_desk(const struct diginet_notice *n)
 {
 	/* An announce from the desk is noticed with where this host's MAC sits in an e1 body
 	 * and the desk its name selects.
-	 * contract: diginet_session.h:98, :115; docs/protocol.md:47, :203
-	 * mutant: transport/src/diginet_session.c:201 `i + DIGINET_MAC_LEN <= a->unknown_len` -> `i + DIGINET_MAC_LEN < a->unknown_len`
+	 * contract: diginet_session.h:101, :118; docs/protocol.md:47, :203
+	 * mutant: transport/src/diginet_session.c:202 `i + DIGINET_MAC_LEN <= a->unknown_len` -> `i + DIGINET_MAC_LEN < a->unknown_len`
 	 * input: e1-mac-at-9 */
 	if (GOT.desk > OW.desk || n->mac_offset != OW.desk_off || !n->personality != !OW.desk_p ||
 	    (n->personality && (n->personality->device != OW.desk_p->device ||
 				n->personality->strips != OW.desk_p->strips)))
 		abort();
 	/* The notice carries the announce.
-	 * contract: diginet_session.h:98
-	 * mutant: transport/src/diginet_session.c:246 `.announce = &a` -> `.announce = NULL`
+	 * contract: diginet_session.h:101
+	 * mutant: transport/src/diginet_session.c:247 `.announce = &a` -> `.announce = NULL`
 	 * input: online */
 	if (!n->announce)
 		abort();
@@ -625,7 +625,7 @@ FUZZ_CHECK check_state_desk(const struct diginet_notice *n)
 	/* Its version is the body bytes from 15 and its name the body bytes from 24, each up to
 	 * its first NUL and at most 9, terminated. The body's first vn (nn) bytes there are not
 	 * NUL, so equal bytes and a NUL after them are the field's whole length.
-	 * contract: diginet_session.h:98; protocol/diginet.ksy `announce` `version` `name` (strz,
+	 * contract: diginet_session.h:101; protocol/diginet.ksy `announce` `version` `name` (strz,
 	 * size: 9)
 	 * mutant: src/diginet_frame.c:148 `f->body + 15` -> `f->body + 14`
 	 * input: online */
@@ -638,8 +638,8 @@ FUZZ_CHECK check_state_desk(const struct diginet_notice *n)
 FUZZ_CHECK check_state_data(const struct diginet_notice *n)
 {
 	/* A desk data frame is noticed with its body and counter.
-	 * contract: diginet_session.h:100
-	 * mutant: transport/src/diginet_session.c:326 `.body_len = f->body_len` -> `.body_len = f->body_len - 1`
+	 * contract: diginet_session.h:103
+	 * mutant: transport/src/diginet_session.c:335 `.body_len = f->body_len` -> `.body_len = f->body_len - 1`
 	 * input: data-acked */
 	if (GOT.ndata >= OW.ndata || GOT.ndata >= 2 || n->body_len != OW.dn[GOT.ndata].len ||
 	    memcmp(n->body, OW.dn[GOT.ndata].body, n->body_len) || n->counter != OW.dn[GOT.ndata].counter ||
@@ -652,24 +652,24 @@ FUZZ_CHECK check_state_deaf(const struct diginet_notice *n)
 	/* A deaf desk is reported only at the deaf_wakes-th wake in a row that timed out while the
 	 * desk announced within offline_ms, and once per run: an a0 for an e2, an e1 naming another
 	 * host and a timeout with no recent announce end the run; deaf_wakes 0 never reports.
-	 * contract: diginet_session.h:28-33, :88, :104-105
-	 * mutant: transport/src/diginet_session.c:494 `s->deaf_count == s->cfg.deaf_wakes` -> `s->deaf_count >= s->cfg.deaf_wakes`
+	 * contract: diginet_session.h:29-34, :91, :107-108
+	 * mutant: transport/src/diginet_session.c:503 `s->deaf_count == s->cfg.deaf_wakes` -> `s->deaf_count >= s->cfg.deaf_wakes`
 	 * input: deaf
-	 * mutant: transport/src/diginet_session.c:492 `announcing ? s->deaf_count + 1 : 0` -> `1 ? s->deaf_count + 1 : 0`
+	 * mutant: transport/src/diginet_session.c:501 `announcing ? s->deaf_count + 1 : 0` -> `1 ? s->deaf_count + 1 : 0`
 	 * input: deaf-silent
-	 * mutant: transport/src/diginet_session.c:491 `< ms(s->cfg.offline_ms)` -> `<= ms(s->cfg.offline_ms)`
+	 * mutant: transport/src/diginet_session.c:500 `< ms(s->cfg.offline_ms)` -> `<= ms(s->cfg.offline_ms)`
 	 * input: deaf-window-exact
-	 * mutant: transport/src/diginet_session.c:302 `s->deaf_count = 0;` -> `(void)0;`
+	 * mutant: transport/src/diginet_session.c:311 `s->deaf_count = 0;` -> `(void)0;`
 	 * input: deaf-reset-ack
-	 * mutant: transport/src/diginet_session.c:283 `s->deaf_count = 0;` -> `(void)0;`
+	 * mutant: transport/src/diginet_session.c:292 `s->deaf_count = 0;` -> `(void)0;`
 	 * input: deaf-foreign
-	 * mutant: transport/src/diginet_session.c:494 `s->cfg.deaf_wakes && ` -> ``
+	 * mutant: transport/src/diginet_session.c:503 `s->cfg.deaf_wakes && ` -> ``
 	 * input: deaf-off */
 	if (GOT.deaf > OW.deaf)
 		abort();
 	/* It names that count, and comes after the change to IDLE.
-	 * contract: diginet_session.h:104-105
-	 * mutant: transport/src/diginet_session.c:496 `.counter = s->deaf_count` -> `.counter = 0`
+	 * contract: diginet_session.h:107-108
+	 * mutant: transport/src/diginet_session.c:505 `.counter = s->deaf_count` -> `.counter = 0`
 	 * input: deaf */
 	if (n->counter != OW.deaf_count || n->state != S_IDLE || g_s.state != S_IDLE)
 		abort();
@@ -679,8 +679,8 @@ FUZZ_CHECK check_keepalive_due(void)
 {
 	/* A keepalive goes only when due on its own clock, while online, with nothing in flight
 	 * and no back-off holding.
-	 * contract: diginet_session.h:17-18
-	 * mutant: transport/src/diginet_session.c:536 `now >= s->next_keepalive_us` -> `now + 5000 >= s->next_keepalive_us`
+	 * contract: diginet_session.h:18-19
+	 * mutant: transport/src/diginet_session.c:545 `now >= s->next_keepalive_us` -> `now + 5000 >= s->next_keepalive_us`
 	 * input: keepalive-clock */
 	if (M.state != S_ONLINE || M.fly.on || g_now < M.backoff_until || g_now < M.next_ka)
 		abort();
@@ -690,14 +690,14 @@ FUZZ_CHECK check_latest_frame(const struct spec_frame *f, unsigned cmds)
 {
 	/* A frame holds at most max_cmds commands and max_body bytes, and its count is the
 	 * commands in it.
-	 * contract: diginet_session.h:21; docs/protocol.md:43
-	 * mutant: transport/src/diginet_session.c:458 `.num_commands = (uint8_t)ncmds` -> `.num_commands = (uint8_t)(ncmds + 1)`
+	 * contract: diginet_session.h:22; docs/protocol.md:43
+	 * mutant: transport/src/diginet_session.c:467 `.num_commands = (uint8_t)ncmds` -> `.num_commands = (uint8_t)(ncmds + 1)`
 	 * input: batches */
 	if (f->body_len > g_cfg.max_body || f->ncmds > g_cfg.max_cmds || (!g_raw && f->ncmds != cmds))
 		abort();
 	/* Its counter is the host's, advanced by the commands in it.
 	 * contract: docs/protocol.md:39, :205, A8
-	 * mutant: transport/src/diginet_session.c:459 `s->host_counter += ncmds;` -> `s->host_counter += 1;`
+	 * mutant: transport/src/diginet_session.c:468 `s->host_counter += ncmds;` -> `s->host_counter += 1;`
 	 * input: batches */
 	if (f->send != (uint32_t)(M.host_counter + f->ncmds))
 		abort();
@@ -708,9 +708,9 @@ FUZZ_CHECK check_latest_control(const struct spec_frame *f)
 	/* An ACK or an e3 carries the host's counter unchanged, an e2 the counter 0, on which alone a
 	 * Control|24 takes a session (measured 2026-10-30).
 	 * contract: docs/protocol.md:56, :205, A8
-	 * mutant: transport/src/diginet_session.c:104 `? 0 : s->host_counter` -> `? 0 : s->host_counter + 1`
+	 * mutant: transport/src/diginet_session.c:105 `? 0 : s->host_counter` -> `? 0 : s->host_counter + 1`
 	 * input: data-acked
-	 * mutant: transport/src/diginet_session.c:104 `? 0 :` -> `? s->host_counter :`
+	 * mutant: transport/src/diginet_session.c:105 `? 0 :` -> `? s->host_counter :`
 	 * input: c24-reboot */
 	if (f->send != (f->cmd == SPEC_CMD_E2 ? 0 : M.host_counter))
 		abort();
@@ -741,8 +741,8 @@ FUZZ_CHECK check_latest_sent(const uint8_t *body, size_t len, int *display)
 		struct tagged *t = tagged_of(body + at, len - at);
 		/* Each command of a sent body is one submitted, still the latest for its key, and
 		 * not sent before.
-		 * contract: diginet_session.h:19-20
-		 * mutant: transport/src/diginet_session.c:433 `c->bytes, c->len);` -> `s->queue[0].bytes, c->len);`
+		 * contract: diginet_session.h:20-21
+		 * mutant: transport/src/diginet_session.c:442 `c->bytes, c->len);` -> `s->queue[0].bytes, c->len);`
 		 * input: batches */
 		if (!t || t->st != PENDING || t->len > len - at || memcmp(body + at, t->bytes, t->len))
 			abort();
@@ -756,8 +756,8 @@ FUZZ_CHECK check_latest_sent(const uint8_t *body, size_t len, int *display)
 FUZZ_CHECK check_latest_display(void)
 {
 	/* A frame holding display writes follows the last one by at least display_gap_us.
-	 * contract: diginet_session.h:21-22; docs/protocol.md:60
-	 * mutant: transport/src/diginet_session.c:547 `now - s->last_display_us >= s->cfg.display_gap_us` -> `now - s->last_display_us + 1000 >= s->cfg.display_gap_us`
+	 * contract: diginet_session.h:22-23; docs/protocol.md:60
+	 * mutant: transport/src/diginet_session.c:556 `now - s->last_display_us >= s->cfg.display_gap_us` -> `now - s->last_display_us + 1000 >= s->cfg.display_gap_us`
 	 * input: batches */
 	if (M.display_sent && g_now - M.last_display < g_cfg.display_gap_us)
 		abort();
@@ -767,8 +767,8 @@ FUZZ_CHECK check_refusal_submit(const struct diginet_cmd *c, int rc, unsigned qu
 {
 	/* A command holding F0 13 xx 70 is refused and not queued, and no other command is
 	 * refused as such.
-	 * contract: diginet_session.h:188-190; docs/protocol.md:140-144
-	 * mutant: transport/src/diginet_session.c:400 `diginet_body_check(c->bytes, c->len)` -> `diginet_body_check(c->bytes, c->len - 1)`
+	 * contract: diginet_session.h:191-193; docs/protocol.md:140-144
+	 * mutant: transport/src/diginet_session.c:409 `diginet_body_check(c->bytes, c->len)` -> `diginet_body_check(c->bytes, c->len - 1)`
 	 * input: submit-system-cut-short */
 	if (spec_system_at(c->bytes, c->len) >= 0 ? rc != SPEC_E_REFUSED || g_s.queued != queued_before : rc == SPEC_E_REFUSED)
 		abort();
@@ -778,8 +778,8 @@ FUZZ_CHECK check_latest_submit(int rc, int want)
 {
 	/* A command is queued, or takes its key's place; the queue refuses only when 512
 	 * commands are pending.
-	 * contract: diginet_session.h:19-20, :130, :188-190
-	 * mutant: include/diginet/transport/diginet_session.h:130 `512` -> `511`
+	 * contract: diginet_session.h:20-21, :133, :191-193
+	 * mutant: include/diginet/transport/diginet_session.h:133 `512` -> `511`
 	 * input: queue-full */
 	if (rc != want)
 		abort();
@@ -790,8 +790,8 @@ FUZZ_CHECK check_latest_submit(int rc, int want)
 FUZZ_CHECK check_ack_settle(void)
 {
 	/* Every desk data frame is ACKed, once each time it comes, and no other frame is.
-	 * contract: diginet_session.h:14
-	 * mutant: transport/src/diginet_session.c:361 `s->state == DIGINET_S_CLOSED` -> `s->state == DIGINET_S_ONLINE`
+	 * contract: diginet_session.h:15
+	 * mutant: transport/src/diginet_session.c:370 `s->state == DIGINET_S_CLOSED` -> `s->state == DIGINET_S_ONLINE`
 	 * input: data-acked */
 	if (GOT.acks != OW.acks)
 		abort();
@@ -801,49 +801,49 @@ FUZZ_CHECK check_state_settle(void)
 {
 	/* An e2 goes exactly when the host wakes: on a wake, with auto_wake on an e0 or an e1
 	 * naming this host while IDLE.
-	 * contract: diginet_session.h:7, :77, :193
-	 * mutant: transport/src/diginet_session.c:268 `s->state == DIGINET_S_IDLE && s->cfg.auto_wake` -> `0`
+	 * contract: diginet_session.h:7, :80, :196
+	 * mutant: transport/src/diginet_session.c:269 `s->state == DIGINET_S_IDLE && s->cfg.auto_wake` -> `0`
 	 * input: retake-e1
-	 * mutant: transport/src/diginet_session.c:268 `s->state == DIGINET_S_IDLE && ` -> ``
+	 * mutant: transport/src/diginet_session.c:269 `s->state == DIGINET_S_IDLE && ` -> ``
 	 * input: retake-e1
-	 * mutant: transport/src/diginet_session.c:268 `&& s->cfg.auto_wake` -> ``
+	 * mutant: transport/src/diginet_session.c:269 `&& s->cfg.auto_wake` -> ``
 	 * input: retake-e1-manual
-	 * mutant: transport/src/diginet_session.c:260 `s->cfg.auto_wake` -> `!s->cfg.auto_wake`
+	 * mutant: transport/src/diginet_session.c:261 `s->cfg.auto_wake` -> `!s->cfg.auto_wake`
 	 * input: online
-	 * mutant: transport/src/diginet_session.c:279 `diginet_session_wake(s, now);` -> `(void)now;`
+	 * mutant: transport/src/diginet_session.c:288 `diginet_session_wake(s, now);` -> `(void)now;`
 	 * input: retake-other-if
-	 * mutant: transport/src/diginet_session.c:276 `if (names_other_host_mac(s, &a)) {` -> `if (0) {`
+	 * mutant: transport/src/diginet_session.c:285 `if (names_other_host_mac(s, &a)) {` -> `if (0) {`
 	 * input: retake-other-if
-	 * mutant: transport/src/diginet_session.c:210 `i < s->cfg.n_other_host_macs;` -> `i < 0;`
+	 * mutant: transport/src/diginet_session.c:211 `i < s->cfg.n_other_host_macs;` -> `i < 0;`
 	 * input: retake-other-if */
 	if (GOT.e2 != OW.e2)
 		abort();
 	/* An e3 goes on close, to a known desk not in another host's session, once.
-	 * contract: diginet_session.h:197-198
-	 * mutant: transport/src/diginet_session.c:183 `!s->foreign &&` -> ``
+	 * contract: diginet_session.h:200-201
+	 * mutant: transport/src/diginet_session.c:184 `!s->foreign &&` -> ``
 	 * input: close-foreign */
 	if (GOT.e3 != OW.e3)
 		abort();
 	/* Every desk data frame but a keepalive is noticed, and a desk retry of the frame just
 	 * noticed is not noticed again.
-	 * contract: diginet_session.h:100
-	 * mutant: transport/src/diginet_session.c:317 `f->h.send_counter == s->desk_counter && f->h.retry` -> `f->h.send_counter == s->desk_counter`
+	 * contract: diginet_session.h:103
+	 * mutant: transport/src/diginet_session.c:326 `f->h.send_counter == s->desk_counter && f->h.retry` -> `f->h.send_counter == s->desk_counter`
 	 * input: data-repeat */
 	if (GOT.ndata != OW.ndata)
 		abort();
 	/* Every announce of the desk is noticed, and an e1 naming another host as foreign.
-	 * contract: diginet_session.h:98, :103
-	 * mutant: transport/src/diginet_session.c:285 `s->notify(s->notify_ctx, &fn);` -> `(void)fn;`
+	 * contract: diginet_session.h:101, :106
+	 * mutant: transport/src/diginet_session.c:294 `s->notify(s->notify_ctx, &fn);` -> `(void)fn;`
 	 * input: wake-foreign */
 	if (GOT.desk != OW.desk || GOT.foreign != OW.foreign)
 		abort();
 	/* A deaf desk owed is reported: every announce counts toward it, at the time it came.
-	 * contract: diginet_session.h:28-33, :104-105
-	 * mutant: transport/src/diginet_session.c:249 `s->last_announce_us = now;` -> `(void)now;`
+	 * contract: diginet_session.h:29-34, :107-108
+	 * mutant: transport/src/diginet_session.c:250 `s->last_announce_us = now;` -> `(void)now;`
 	 * input: deaf
-	 * mutant: transport/src/diginet_session.c:248 `s->announce_seen = 1;` -> `(void)0;`
+	 * mutant: transport/src/diginet_session.c:249 `s->announce_seen = 1;` -> `(void)0;`
 	 * input: deaf
-	 * mutant: transport/src/diginet_session.c:492 `s->deaf_count + 1 : 0` -> `s->deaf_count : 0`
+	 * mutant: transport/src/diginet_session.c:501 `s->deaf_count + 1 : 0` -> `s->deaf_count : 0`
 	 * input: deaf */
 	if (GOT.deaf != OW.deaf)
 		abort();
@@ -853,32 +853,34 @@ FUZZ_CHECK check_state_settle(void)
 		why &= GOT.t[i].reason == OW.t[i].reason;
 	}
 	/* The session changes state exactly as the diagram says, in order.
-	 * contract: diginet_session.h:7-11
-	 * mutant: transport/src/diginet_session.c:502 `session_lost(s, DIGINET_R_SILENCE)` -> `(void)0`
+	 * contract: diginet_session.h:7-12
+	 * mutant: transport/src/diginet_session.c:511 `session_lost(s, DIGINET_R_SILENCE)` -> `(void)0`
 	 * input: silence
-	 * mutant: transport/src/diginet_session.c:257 `session_lost(s, DIGINET_R_DESK_OFFLINE)` -> `(void)0`
+	 * mutant: transport/src/diginet_session.c:258 `session_lost(s, DIGINET_R_DESK_OFFLINE)` -> `(void)0`
 	 * input: offline-e0
-	 * mutant: transport/src/diginet_session.c:379 `session_lost(s, DIGINET_R_DESK_DISCONNECT)` -> `(void)0`
+	 * mutant: transport/src/diginet_session.c:388 `session_lost(s, DIGINET_R_DESK_DISCONNECT)` -> `(void)0`
 	 * input: session-ends
-	 * mutant: transport/src/diginet_session.c:489 `>= ms(s->cfg.wake_timeout_ms)` -> `> ms(s->cfg.wake_timeout_ms)`
+	 * mutant: transport/src/diginet_session.c:498 `>= ms(s->cfg.wake_timeout_ms)` -> `> ms(s->cfg.wake_timeout_ms)`
 	 * input: wake-timeout-exact
-	 * mutant: transport/src/diginet_session.c:501 `>= ms(s->cfg.offline_ms)` -> `> ms(s->cfg.offline_ms)`
+	 * mutant: transport/src/diginet_session.c:510 `>= ms(s->cfg.offline_ms)` -> `> ms(s->cfg.offline_ms)`
 	 * input: silence-exact
-	 * mutant: transport/src/diginet_session.c:256 `if (s->state == DIGINET_S_ONLINE && s->e1_named_us)` -> `if (0)`
+	 * mutant: transport/src/diginet_session.c:273 `s->state == DIGINET_S_ONLINE && !s->e1_named_us;` -> `0;`
+	 * input: c24-session
+	 * mutant: transport/src/diginet_session.c:257 `if (s->state == DIGINET_S_ONLINE && s->e1_named_us)` -> `if (0)`
 	 * input: c24-reboot
-	 * mutant: transport/src/diginet_session.c:272 `s->e1_named_us = 1;` -> `(void)0;`
+	 * mutant: transport/src/diginet_session.c:276 `s->e1_named_us = 1;` -> `(void)0;`
 	 * input: restart-in-session
-	 * mutant: transport/src/diginet_session.c:521 `session_lost(s, DIGINET_R_ACK_LOST);` -> `(void)0;`
+	 * mutant: transport/src/diginet_session.c:530 `session_lost(s, DIGINET_R_ACK_LOST);` -> `(void)0;`
 	 * input: c24-ack-lost */
 	if (!same)
 		abort();
 	/* Each change names its reason.
-	 * contract: diginet_session.h:59-71
-	 * mutant: transport/src/diginet_session.c:502 `DIGINET_R_SILENCE` -> `DIGINET_R_WAKE_TIMEOUT`
+	 * contract: diginet_session.h:60-74
+	 * mutant: transport/src/diginet_session.c:511 `DIGINET_R_SILENCE` -> `DIGINET_R_WAKE_TIMEOUT`
 	 * input: silence
-	 * mutant: transport/src/diginet_session.c:257 `DIGINET_R_DESK_OFFLINE` -> `DIGINET_R_SILENCE`
+	 * mutant: transport/src/diginet_session.c:258 `DIGINET_R_DESK_OFFLINE` -> `DIGINET_R_SILENCE`
 	 * input: c24-reboot
-	 * mutant: transport/src/diginet_session.c:521 `DIGINET_R_ACK_LOST` -> `DIGINET_R_SILENCE`
+	 * mutant: transport/src/diginet_session.c:530 `DIGINET_R_ACK_LOST` -> `DIGINET_R_SILENCE`
 	 * input: c24-ack-lost */
 	if (!why)
 		abort();
@@ -887,27 +889,27 @@ FUZZ_CHECK check_state_settle(void)
 FUZZ_CHECK check_inflight_settle(void)
 {
 	/* The ACK of the frame in flight is taken, and noticed.
-	 * contract: diginet_session.h:101
-	 * mutant: transport/src/diginet_session.c:292 `f->h.ack_counter != s->inflight_counter` -> `f->h.ack_counter != s->inflight_counter + 1`
+	 * contract: diginet_session.h:104
+	 * mutant: transport/src/diginet_session.c:301 `f->h.ack_counter != s->inflight_counter` -> `f->h.ack_counter != s->inflight_counter + 1`
 	 * input: online */
 	if (GOT.acked != OW.acked)
 		abort();
 	/* A frame in flight with no ACK after ack_timeout has been sent again, or dropped.
-	 * contract: diginet_session.h:15-16
-	 * mutant: transport/src/diginet_session.c:506 `if (s->inflight && now` -> `if (!s->inflight && now`
+	 * contract: diginet_session.h:16-17
+	 * mutant: transport/src/diginet_session.c:515 `if (s->inflight && now` -> `if (!s->inflight && now`
 	 * input: wake-unanswered */
 	if (M.fly.on && g_now - M.fly.sent >= ms(g_cfg.ack_timeout_ms))
 		abort();
 	uint64_t d = diginet_session_deadline(&g_s, g_now);
 	/* The deadline is now or later, and never more than a second away.
-	 * contract: diginet_session.h:181-182; transport/src/diginet_session.c:524
-	 * mutant: transport/src/diginet_session.c:565 `now + 1000000` -> `now + 1000001`
+	 * contract: diginet_session.h:184-185; transport/src/diginet_session.c:533
+	 * mutant: transport/src/diginet_session.c:574 `now + 1000000` -> `now + 1000001`
 	 * input: online */
 	if (d < g_now || d > g_now + 1000000)
 		abort();
 	/* It is never later than the next retransmission of the frame in flight.
-	 * contract: diginet_session.h:181-182, :15-16
-	 * mutant: transport/src/diginet_session.c:582 `s->inflight_sent_us + ms(s->cfg.ack_timeout_ms)` -> `s->inflight_sent_us + 2 * ms(s->cfg.ack_timeout_ms)`
+	 * contract: diginet_session.h:184-185, :16-17
+	 * mutant: transport/src/diginet_session.c:591 `s->inflight_sent_us + ms(s->cfg.ack_timeout_ms)` -> `s->inflight_sent_us + 2 * ms(s->cfg.ack_timeout_ms)`
 	 * input: wake-unanswered */
 	if (M.fly.on && d > M.fly.sent + ms(g_cfg.ack_timeout_ms))
 		abort();
@@ -917,10 +919,10 @@ FUZZ_CHECK check_reassert_settle(void)
 {
 	/* An e2 owed to a Control|24's e0 has gone once the slot is free: online, nothing in
 	 * flight, no back-off holding.
-	 * contract: diginet_session.h:145
-	 * mutant: transport/src/diginet_session.c:530 `if (s->reassert) {` -> `if (0) {`
+	 * contract: diginet_session.h:148
+	 * mutant: transport/src/diginet_session.c:539 `if (s->reassert) {` -> `if (0) {`
 	 * input: c24-session
-	 * mutant: transport/src/diginet_session.c:258 `else if (s->state == DIGINET_S_ONLINE && !announces_e1(s))` -> `else if (0)`
+	 * mutant: transport/src/diginet_session.c:259 `else if (s->state == DIGINET_S_ONLINE && !announces_e1(s))` -> `else if (0)`
 	 * input: c24-session */
 	if (M.reassert && M.state == S_ONLINE && !M.fly.on && g_now >= M.backoff_until)
 		abort();
@@ -931,8 +933,8 @@ FUZZ_CHECK check_keepalive_settle(void)
 	/* A keepalive due while online, with nothing in flight and no back-off holding, has gone.
 	 * In raw mode a command can be the byte 00 a keepalive is, so the clock is held in tagged
 	 * mode only.
-	 * contract: diginet_session.h:17-18
-	 * mutant: transport/src/diginet_session.c:538 `+= ms(s->cfg.keepalive_ms);` -> `+= 2 * ms(s->cfg.keepalive_ms);`
+	 * contract: diginet_session.h:18-19
+	 * mutant: transport/src/diginet_session.c:547 `+= ms(s->cfg.keepalive_ms);` -> `+= 2 * ms(s->cfg.keepalive_ms);`
 	 * input: keepalive-clock */
 	if (!g_raw && M.state == S_ONLINE && !M.fly.on && g_now >= M.backoff_until && g_now >= M.next_ka)
 		abort();
@@ -946,12 +948,12 @@ FUZZ_CHECK check_latest_drain(void)
 	/* After a tick, a command that may go has gone: while online, with nothing in flight and
 	 * no back-off holding, a pending command that is no display write, or any once the
 	 * display gap has passed, leaves in a frame.
-	 * contract: diginet_session.h:15, :18, :21-22
-	 * mutant: transport/src/diginet_session.c:545 `if (!s->queued)` -> `if (s->queued)`
+	 * contract: diginet_session.h:16, :19, :22-23
+	 * mutant: transport/src/diginet_session.c:554 `if (!s->queued)` -> `if (s->queued)`
 	 * input: coalesce
-	 * mutant: transport/src/diginet_session.c:547 `now - s->last_display_us >= s->cfg.display_gap_us` -> `now - s->last_display_us > s->cfg.display_gap_us`
+	 * mutant: transport/src/diginet_session.c:556 `now - s->last_display_us >= s->cfg.display_gap_us` -> `now - s->last_display_us > s->cfg.display_gap_us`
 	 * input: display-gap-exact
-	 * mutant: transport/src/diginet_session.c:527 `now < s->backoff_until_us` -> `now <= s->backoff_until_us`
+	 * mutant: transport/src/diginet_session.c:536 `now < s->backoff_until_us` -> `now <= s->backoff_until_us`
 	 * input: backoff-exact */
 	if (M.state == S_ONLINE && !M.fly.on && g_now >= M.backoff_until && ready)
 		abort();
@@ -965,10 +967,10 @@ FUZZ_CHECK check_latest_queue(void)
 		same = g_s.queue[i].len == t->len && !memcmp(g_s.queue[i].bytes, t->bytes, t->len);
 	}
 	/* The queue is exactly the pending commands, in order, a newer one in its key's place.
-	 * contract: diginet_session.h:19-20
-	 * mutant: transport/src/diginet_session.c:407 `s->queue[i] = *c;` -> `s->queue[i].key = c->key;`
+	 * contract: diginet_session.h:20-21
+	 * mutant: transport/src/diginet_session.c:416 `s->queue[i] = *c;` -> `s->queue[i].key = c->key;`
 	 * input: coalesce
-	 * mutant: transport/src/diginet_session.c:406 `if (s->queue[i].key == c->key) {` -> `if (0) {`
+	 * mutant: transport/src/diginet_session.c:415 `if (s->queue[i].key == c->key) {` -> `if (0) {`
 	 * input: coalesce */
 	if (!same)
 		abort();
@@ -1107,7 +1109,7 @@ static void notice(void *ctx, const struct diginet_notice *n)
 	case N_ACK_LOST:
 		check_inflight_lost(n);
 		M.fly.on = 0;
-		/* ONLINE --(a host frame unACKed after max_retries)--> IDLE (diginet_session.h:9, :70) */
+		/* ONLINE --(a host frame unACKed after max_retries)--> IDLE (diginet_session.h:9, :71) */
 		if (M.state == S_ONLINE)
 			m_lost(R_ACK_LOST);
 		break;
@@ -1331,7 +1333,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 	 * and a body that holds the longest command and fits a frame.
 	 * contract: protocol/diginet.ksy header `num_commands` (u1); fuzz/spec.h SPEC_MAX_BODY,
 	 * SPEC_CMD_MAX
-	 * mutant: transport/src/diginet_session.c:64 `cfg->max_cmds > 255` -> `cfg->max_cmds > 254`
+	 * mutant: transport/src/diginet_session.c:65 `cfg->max_cmds > 255` -> `cfg->max_cmds > 254`
 	 * input: split-system */
 	if (diginet_session_init(&g_s, &g_cfg, &io, notice, NULL) != SPEC_OK)
 		abort();
