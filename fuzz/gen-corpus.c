@@ -408,6 +408,8 @@ static void codec_seeds(void)
 	emit("codec", "sysex-system");
 	op(11, C24); put8(0x01); put8(0x10); putlen(260); put8(0x80);
 	emit("codec", "sysex-len-260");
+	op(11, C24); put8(0x01); put8(0x10); putlen(UINT64_MAX - 4); put8(0x00);
+	emit("codec", "sysex-len-wraps");
 	op(13, C24); put16(9); put("12345678.", 9);
 	emit("codec", "counter-text-last-dot");
 

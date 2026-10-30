@@ -313,8 +313,10 @@ FUZZ_CHECK check_range(const struct call *k)
 	 * input: out-of-range
 	 * mutant: src/diginet_codec.c:184 `mask >> DIGINET_RING_LEDS` -> `mask >> 16`
 	 * input: out-of-range
-	 * mutant: src/diginet_codec.c:75 `len + 5 > DIGINET_CMD_MAX_LEN` -> `(uint8_t)len + 5 > DIGINET_CMD_MAX_LEN`
-	 * input: sysex-len-260 */
+	 * mutant: src/diginet_codec.c:75 `len > DIGINET_CMD_MAX_LEN - 5` -> `(uint8_t)len > DIGINET_CMD_MAX_LEN - 5`
+	 * input: sysex-len-260
+	 * mutant: src/diginet_codec.c:75 `len > DIGINET_CMD_MAX_LEN - 5` -> `len + 5 > DIGINET_CMD_MAX_LEN`
+	 * input: sysex-len-wraps */
 	if (k->rc != k->want_rc)
 		abort();
 }
