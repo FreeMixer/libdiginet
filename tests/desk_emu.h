@@ -46,6 +46,8 @@ struct desk_emu {
 				   * session and then had another e2 (a desk capture) */
 	int shows_session;        /* announcing e1 naming its host while in session */
 	int data_since_e2;        /* host data ACKed in this session */
+	unsigned blanks;          /* every e2 that opens a new session blanks the displays (R15) */
+	unsigned data_since_blank;/* host data frames, keepalives aside, taken since the last blank */
 	uint32_t seq;             /* the desk's own send counter */
 	uint64_t last_host_us;    /* last frame from the session host */
 	uint64_t host_timeout_us; /* the desk drops to e0 after this much silence */

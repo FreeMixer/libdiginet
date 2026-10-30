@@ -59,9 +59,19 @@ static unsigned data_frames;
 static uint8_t last_data[64];
 static size_t last_data_len;
 
+/* The host's board: on every ONLINE notice it writes what the desk shows again, as libsurface
+ * replays its shadow, here one fader frame. */
+static int paint_on_online;
+static unsigned paints;
+static struct diginet_cmd fader(unsigned strip, unsigned v);
+
 static void on_notice(void *ctx, const struct diginet_notice *n)
 {
 	(void)ctx;
+	if (paint_on_online && n->kind == DIGINET_N_STATE && n->state == DIGINET_S_ONLINE) {
+		struct diginet_cmd c = fader(1, 200 + paints++);
+		CHK(diginet_session_submit(S_, &c) == DIGINET_OK);
+	}
 	if (nn < NLOG) {
 		nlog[nn] = *n;
 		nlog[nn].frame = NULL;
@@ -693,6 +703,8 @@ static void test_control24(void)
 	 * and it announces e1 naming us at once, and e1 from then on (a capture on the desk). */
 	desk_name = "CNTRL|24";
 	start();
+	paint_on_online = 1;
+	paints = 0;
 	go_online();
 	CHK(S_->personality && S_->personality->desk == DIGINET_DESK_CONTROL24 && !S_->personality->announces_session);
 	CHK(find_state(DIGINET_S_ONLINE, DIGINET_R_ONLINE) >= 0 && !S_->e1_named_us && E.wakes == 1);
@@ -704,7 +716,14 @@ static void test_control24(void)
 	run(25 * S, 10 * MS, NULL);
 	CHK(S_->state == DIGINET_S_ONLINE && E.wakes == 2 && last_wake_counter() == 0);
 	CHK(E.shows_session && S_->e1_named_us && E.keepalives >= ka + 2 && E.in_session);
-	CHK(count_kind(DIGINET_N_STATE) == states && count_kind(DIGINET_N_ACK_LOST) == 0);
+	CHK(count_kind(DIGINET_N_ACK_LOST) == 0);
+	/* That second e2 opened a new session on the desk and blanked it (a capture: the scribbles
+	 * went blank, the faders stayed): its first e1 is ONLINE again for the host (RENEWED), and
+	 * the board the host writes on it reaches the desk after the blank. */
+	int rn = find_state(DIGINET_S_ONLINE, DIGINET_R_RENEWED);
+	CHK(rn >= 0 && nlog[rn].old_state == DIGINET_S_ONLINE && count_kind(DIGINET_N_STATE) == states + 1);
+	CHK(E.blanks == 2 && E.data_since_blank >= 1 && paints == 2);
+	paint_on_online = 0;
 	CHK(ndesk >= 1 && desk_offsets[ndesk - 1] == 0);
 
 	/* A reboot: the desk is out of session, still ACKs every host frame (as a Control|24

@@ -8,6 +8,7 @@
  *   WAKING --(desk a0 for the e2, and an e1 naming this host from a desk that announces e1)--> ONLINE
  *   ONLINE --(e0: in session a desk announces only e1; a host frame unACKed after max_retries;
  *             silence; an e1 naming no MAC of this host; desk e3)--> IDLE
+ *   ONLINE --(the first e1 naming this host, from a desk online on its a0)--> ONLINE (RENEWED)
  *   any --(diginet_session_close: host e3)--> CLOSED
  *
  * While a session lives:
@@ -68,6 +69,8 @@ enum diginet_reason {
 	DIGINET_R_DESK_DISCONNECT, /* the desk sent e3 */
 	DIGINET_R_CLOSED,        /* the host sent e3 */
 	DIGINET_R_ACK_LOST,      /* a host frame unACKed after max_retries: the desk is gone */
+	DIGINET_R_RENEWED,       /* ONLINE -> ONLINE: the first e1 naming this host in a session the
+				  * desk opened on our e2, which blanked it: everything shown again */
 };
 
 struct diginet_session_config {

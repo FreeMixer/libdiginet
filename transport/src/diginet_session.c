@@ -51,6 +51,7 @@ const char *diginet_reason_name(enum diginet_reason r)
 	case DIGINET_R_DESK_DISCONNECT: return "desk sent e3";
 	case DIGINET_R_CLOSED:          return "host sent e3";
 	case DIGINET_R_ACK_LOST:        return "desk stopped ACKing";
+	case DIGINET_R_RENEWED:         return "desk opened a new session";
 	}
 	return "?";
 }
@@ -267,9 +268,17 @@ static void on_announce(struct diginet_session *s, const struct diginet_frame *f
 		s->foreign = 0;
 		if (s->state == DIGINET_S_IDLE && s->cfg.auto_wake)
 			diginet_session_wake(s, now);   /* our own session, still announced: take it */
+		/* A Control|24 online on its a0 announces its first e1 once the e2 its e0 was owed has
+		 * opened a new session on the desk, which blanks it: the host shows everything again. */
+		int renewed = s->state == DIGINET_S_ONLINE && !s->e1_named_us;
 		/* After the wake, which starts a fresh handshake: this e1 already names us, and a desk
 		 * still in the session announces no new one after the e2. */
 		s->e1_named_us = 1;
+		if (renewed) {
+			struct diginet_notice rn = { .kind = DIGINET_N_STATE, .state = DIGINET_S_ONLINE,
+						     .old_state = DIGINET_S_ONLINE, .reason = DIGINET_R_RENEWED };
+			s->notify(s->notify_ctx, &rn);
+		}
 		maybe_online(s);
 		return;
 	}

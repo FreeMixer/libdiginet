@@ -109,7 +109,7 @@
 /* The states, the reasons and the notices. contract: diginet_session.h:52-71, :97-106 */
 enum { S_IDLE = 0, S_WAKING, S_ONLINE, S_CLOSED };
 enum { R_NONE = 0, R_WAKE, R_ONLINE, R_DESK_OFFLINE, R_SILENCE, R_FOREIGN, R_WAKE_TIMEOUT,
-       R_DESK_DISCONNECT, R_CLOSED, R_ACK_LOST };
+       R_DESK_DISCONNECT, R_CLOSED, R_ACK_LOST, R_RENEWED };
 enum { N_DESK = 1, N_STATE, N_DATA, N_ACKED, N_ACK_LOST, N_FOREIGN, N_DESK_DEAF };
 /* The queue holds 512 commands. contract: diginet_session.h:130 */
 #define QUEUE_MAX   512
@@ -217,6 +217,17 @@ static void m_set(int st, int why)
 	}
 	OW.n++;
 	M.state = st;
+}
+
+/* ONLINE -> ONLINE: the desk opened a new session, which the host shows again (diginet_session.h:11) */
+static void m_renewed(void)
+{
+	if (OW.n < TRANS_MAX) {
+		OW.t[OW.n].state = S_ONLINE;
+		OW.t[OW.n].old = S_ONLINE;
+		OW.t[OW.n].reason = R_RENEWED;
+	}
+	OW.n++;
 }
 
 /* a session that ends: nothing in flight, the desk's counter forgotten (diginet_session.h:9) */
@@ -370,6 +381,9 @@ static int m_rx(const uint8_t *frame, size_t n)
 			M.foreign = 0;
 			if (M.state == S_IDLE && g_cfg.auto_wake)
 				m_wake();
+			/* the first e1 naming us from a desk online on its a0: a new session on the desk */
+			if (M.state == S_ONLINE && !M.e1_us)
+				m_renewed();
 			/* after the wake: this e1 names us, and a desk still in session announces no
 			 * new one after the e2 */
 			M.e1_us = 1;

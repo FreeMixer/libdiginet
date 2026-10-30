@@ -107,12 +107,17 @@ void emu_from_host(struct desk_emu *e, const uint8_t *buf, size_t len, uint64_t 
 			if (!held) {
 				e->shows_session = e->announces_session;
 				e->data_since_e2 = 0;
+				e->blanks++;
+				e->data_since_blank = 0;
 				if (e->shows_session)
 					emu_announce(e, now_us);   /* e1 naming the host */
 			} else if (!e->shows_session && e->data_since_e2) {
 				/* a Control|24 that has the host's data and another e2 enters its
-				 * session: e1 naming the host 1 ms later, and e1 from then on */
+				 * session: a new session, which blanks its displays (the faders keep
+				 * their place), then e1 naming the host 1 ms later, e1 from then on */
 				e->shows_session = 1;
+				e->blanks++;
+				e->data_since_blank = 0;
 				emu_announce(e, now_us);
 			}
 		}
@@ -150,6 +155,8 @@ void emu_from_host(struct desk_emu *e, const uint8_t *buf, size_t len, uint64_t 
 		queue(e, f.src, DIGINET_CMD_ACK, e->seq, f.h.send_counter, 0, 0, NULL, 0);
 		if (r) r->acked = 1;
 		e->data_since_e2 = 1;
+		if (!diginet_frame_is_keepalive(&f))
+			e->data_since_blank++;
 		return;
 	default:
 		return;
