@@ -479,15 +479,15 @@ FUZZ_CHECK check_inflight_new(void)
 {
 	/* A data frame goes only while online, and only when no frame is in flight.
 	 * contract: diginet_session.h:15, :189
-	 * mutant: transport/src/diginet_session.c:492 `s->state != DIGINET_S_ONLINE || s->inflight` -> `s->inflight`
+	 * mutant: transport/src/diginet_session.c:498 `s->state != DIGINET_S_ONLINE || s->inflight` -> `s->inflight`
 	 * input: online
-	 * mutant: transport/src/diginet_session.c:492 `s->inflight || now < s->backoff_until_us` -> `now < s->backoff_until_us`
+	 * mutant: transport/src/diginet_session.c:498 `s->inflight || now < s->backoff_until_us` -> `now < s->backoff_until_us`
 	 * input: batches */
 	if (M.state != S_ONLINE || M.fly.on)
 		abort();
 	/* A data frame never goes while a back-off after a desk retry holds.
 	 * contract: diginet_session.h:17-18
-	 * mutant: transport/src/diginet_session.c:492 `now < s->backoff_until_us` -> `(now < s->backoff_until_us && now >= s->next_keepalive_us)`
+	 * mutant: transport/src/diginet_session.c:498 `now < s->backoff_until_us` -> `(now < s->backoff_until_us && now >= s->next_keepalive_us)`
 	 * input: backoff-exact */
 	if (g_now < M.backoff_until)
 		abort();
@@ -649,7 +649,7 @@ FUZZ_CHECK check_keepalive_due(void)
 	/* A keepalive goes only when due on its own clock, while online, with nothing in flight
 	 * and no back-off holding.
 	 * contract: diginet_session.h:17-18
-	 * mutant: transport/src/diginet_session.c:496 `now >= s->next_keepalive_us` -> `now + 5000 >= s->next_keepalive_us`
+	 * mutant: transport/src/diginet_session.c:502 `now >= s->next_keepalive_us` -> `now + 5000 >= s->next_keepalive_us`
 	 * input: keepalive-clock */
 	if (M.state != S_ONLINE || M.fly.on || g_now < M.backoff_until || g_now < M.next_ka)
 		abort();
@@ -726,7 +726,7 @@ FUZZ_CHECK check_latest_display(void)
 {
 	/* A frame holding display writes follows the last one by at least display_gap_us.
 	 * contract: diginet_session.h:21-22; docs/protocol.md:60
-	 * mutant: transport/src/diginet_session.c:507 `now - s->last_display_us >= s->cfg.display_gap_us` -> `now - s->last_display_us + 1000 >= s->cfg.display_gap_us`
+	 * mutant: transport/src/diginet_session.c:513 `now - s->last_display_us >= s->cfg.display_gap_us` -> `now - s->last_display_us + 1000 >= s->cfg.display_gap_us`
 	 * input: batches */
 	if (M.display_sent && g_now - M.last_display < g_cfg.display_gap_us)
 		abort();
@@ -788,7 +788,9 @@ FUZZ_CHECK check_state_settle(void)
 	 * mutant: transport/src/diginet_session.c:231 `if (s->state == DIGINET_S_ONLINE)` -> `if (0)`
 	 * input: c24-reboot
 	 * mutant: transport/src/diginet_session.c:231 `DIGINET_S_ONLINE)` -> `DIGINET_S_ONLINE && s->e1_named_us)`
-	 * input: e0-after-failed-wake */
+	 * input: e0-after-failed-wake
+	 * mutant: transport/src/diginet_session.c:492 `session_lost(s, DIGINET_R_ACK_LOST);` -> `(void)0;`
+	 * input: c24-ack-lost */
 	if (GOT.e2 != OW.e2)
 		abort();
 	/* An e3 goes on close, to a known desk not in another host's session, once.
@@ -844,7 +846,9 @@ FUZZ_CHECK check_state_settle(void)
 	 * mutant: transport/src/diginet_session.c:473 `DIGINET_R_SILENCE` -> `DIGINET_R_WAKE_TIMEOUT`
 	 * input: silence
 	 * mutant: transport/src/diginet_session.c:232 `DIGINET_R_DESK_OFFLINE` -> `DIGINET_R_SILENCE`
-	 * input: c24-reboot */
+	 * input: c24-reboot
+	 * mutant: transport/src/diginet_session.c:492 `DIGINET_R_ACK_LOST` -> `DIGINET_R_SILENCE`
+	 * input: c24-ack-lost */
 	if (!why)
 		abort();
 }
@@ -865,14 +869,14 @@ FUZZ_CHECK check_inflight_settle(void)
 		abort();
 	uint64_t d = diginet_session_deadline(&g_s, g_now);
 	/* The deadline is now or later, and never more than a second away.
-	 * contract: diginet_session.h:180-181; transport/src/diginet_session.c:489
-	 * mutant: transport/src/diginet_session.c:525 `now + 1000000` -> `now + 1000001`
+	 * contract: diginet_session.h:180-181; transport/src/diginet_session.c:495
+	 * mutant: transport/src/diginet_session.c:531 `now + 1000000` -> `now + 1000001`
 	 * input: online */
 	if (d < g_now || d > g_now + 1000000)
 		abort();
 	/* It is never later than the next retransmission of the frame in flight.
 	 * contract: diginet_session.h:180-181, :15-16
-	 * mutant: transport/src/diginet_session.c:539 `s->inflight_sent_us + ms(s->cfg.ack_timeout_ms)` -> `s->inflight_sent_us + 2 * ms(s->cfg.ack_timeout_ms)`
+	 * mutant: transport/src/diginet_session.c:545 `s->inflight_sent_us + ms(s->cfg.ack_timeout_ms)` -> `s->inflight_sent_us + 2 * ms(s->cfg.ack_timeout_ms)`
 	 * input: wake-unanswered */
 	if (M.fly.on && d > M.fly.sent + ms(g_cfg.ack_timeout_ms))
 		abort();
@@ -884,7 +888,7 @@ FUZZ_CHECK check_keepalive_settle(void)
 	 * In raw mode a command can be the byte 00 a keepalive is, so the clock is held in tagged
 	 * mode only.
 	 * contract: diginet_session.h:17-18
-	 * mutant: transport/src/diginet_session.c:498 `+= ms(s->cfg.keepalive_ms);` -> `+= 2 * ms(s->cfg.keepalive_ms);`
+	 * mutant: transport/src/diginet_session.c:504 `+= ms(s->cfg.keepalive_ms);` -> `+= 2 * ms(s->cfg.keepalive_ms);`
 	 * input: keepalive-clock */
 	if (!g_raw && M.state == S_ONLINE && !M.fly.on && g_now >= M.backoff_until && g_now >= M.next_ka)
 		abort();
@@ -899,11 +903,11 @@ FUZZ_CHECK check_latest_drain(void)
 	 * no back-off holding, a pending command that is no display write, or any once the
 	 * display gap has passed, leaves in a frame.
 	 * contract: diginet_session.h:15, :18, :21-22
-	 * mutant: transport/src/diginet_session.c:505 `if (!s->queued)` -> `if (s->queued)`
+	 * mutant: transport/src/diginet_session.c:511 `if (!s->queued)` -> `if (s->queued)`
 	 * input: coalesce
-	 * mutant: transport/src/diginet_session.c:507 `now - s->last_display_us >= s->cfg.display_gap_us` -> `now - s->last_display_us > s->cfg.display_gap_us`
+	 * mutant: transport/src/diginet_session.c:513 `now - s->last_display_us >= s->cfg.display_gap_us` -> `now - s->last_display_us > s->cfg.display_gap_us`
 	 * input: display-gap-exact
-	 * mutant: transport/src/diginet_session.c:492 `now < s->backoff_until_us` -> `now <= s->backoff_until_us`
+	 * mutant: transport/src/diginet_session.c:498 `now < s->backoff_until_us` -> `now <= s->backoff_until_us`
 	 * input: backoff-exact */
 	if (M.state == S_ONLINE && !M.fly.on && g_now >= M.backoff_until && ready)
 		abort();
