@@ -85,6 +85,13 @@ void emu_from_host(struct desk_emu *e, const uint8_t *buf, size_t len, uint64_t 
 		e->wakes++;
 		if (!e->ack_wake)
 			return;
+		if (f.h.send_counter != 0) {
+			/* a Control|24 takes a session only on an e2 with counter 0; any other it only
+			 * ACKs (measured 2026-10-30) */
+			queue(e, f.src, DIGINET_CMD_ACK, e->seq, f.h.send_counter, 0, 0, NULL, 0);
+			if (r) r->acked = 1;
+			return;
+		}
 		memcpy(e->session_mac, f.src, 6);
 		e->in_session = 1;
 		e->stale = 0;

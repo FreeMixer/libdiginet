@@ -96,11 +96,14 @@ static int send_raw(struct diginet_session *s, const uint8_t *frame, size_t len)
 	return r;
 }
 
-/* Build and send a control frame (no body): ACK, e2, e3. */
+/* Build and send a control frame (no body): ACK, e2, e3. An e2 carries send counter 0: a
+ * Control|24 takes a session on no other, and only ACKs an e2 with the running counter
+ * (measured 2026-10-30). */
 static int send_control(struct diginet_session *s, uint8_t cmd, uint32_t ack_counter, uint8_t *keep, size_t *keep_len)
 {
 	uint8_t f[DIGINET_MIN_FRAME_LEN];
-	struct diginet_header h = { .send_counter = s->host_counter, .ack_counter = ack_counter, .cmd = cmd };
+	struct diginet_header h = { .send_counter = cmd == DIGINET_CMD_WAKE ? 0 : s->host_counter,
+				    .ack_counter = ack_counter, .cmd = cmd };
 	int n = diginet_frame_build(f, sizeof f, s->desk_mac, s->cfg.host_mac, &h, NULL, 0, s->cfg.sum_mode);
 	if (n < 0)
 		return n;
@@ -132,7 +135,7 @@ static int send_wake(struct diginet_session *s, uint64_t now_us)
 	memcpy(s->inflight_frame, e2, e2_len);
 	s->inflight_len = e2_len;
 	s->stats.tx_wakes++;
-	inflight_start(s, s->host_counter, now_us);
+	inflight_start(s, 0, now_us);   /* its a0 echoes the 0 it carried */
 	return DIGINET_OK;
 }
 
@@ -140,13 +143,13 @@ static int send_wake(struct diginet_session *s, uint64_t now_us)
  * failed send is sent again at the ACK timeout. */
 static int send_reassert(struct diginet_session *s, uint64_t now_us)
 {
-	struct diginet_header h = { .send_counter = s->host_counter, .cmd = DIGINET_CMD_WAKE };
+	struct diginet_header h = { .send_counter = 0, .cmd = DIGINET_CMD_WAKE };   /* as every e2 */
 	int n = diginet_frame_build(s->inflight_frame, sizeof s->inflight_frame, s->desk_mac, s->cfg.host_mac,
 				    &h, NULL, 0, s->cfg.sum_mode);
 	if (n < 0)
 		return n;
 	s->inflight_len = (size_t)n;
-	inflight_start(s, s->host_counter, now_us);
+	inflight_start(s, 0, now_us);
 	s->stats.tx_wakes++;
 	return send_raw(s, s->inflight_frame, s->inflight_len);
 }
