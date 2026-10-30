@@ -629,7 +629,7 @@ FUZZ_CHECK check_state_deaf(const struct diginet_notice *n)
 	 * input: deaf-silent
 	 * mutant: transport/src/diginet_session.c:472 `< ms(s->cfg.offline_ms)` -> `<= ms(s->cfg.offline_ms)`
 	 * input: deaf-window-exact
-	 * mutant: transport/src/diginet_session.c:264 `s->deaf_count = 0;` -> `(void)0;`
+	 * mutant: transport/src/diginet_session.c:283 `s->deaf_count = 0;` -> `(void)0;`
 	 * input: deaf-reset-ack
 	 * mutant: transport/src/diginet_session.c:264 `s->deaf_count = 0;` -> `(void)0;`
 	 * input: deaf-foreign
@@ -769,11 +769,11 @@ FUZZ_CHECK check_state_settle(void)
 	/* An e2 goes exactly when the host wakes: on a wake, with auto_wake on an e0 or an e1
 	 * naming this host while IDLE, and with answer_e0 on a Control|24's e0 while ONLINE.
 	 * contract: diginet_session.h:7, :71, :186
-	 * mutant: transport/src/diginet_session.c:249 `s->state == DIGINET_S_IDLE && s->cfg.auto_wake` -> `0`
+	 * mutant: transport/src/diginet_session.c:258 `s->state == DIGINET_S_IDLE && s->cfg.auto_wake` -> `0`
 	 * input: retake-e1
-	 * mutant: transport/src/diginet_session.c:249 `s->state == DIGINET_S_IDLE && ` -> ``
+	 * mutant: transport/src/diginet_session.c:258 `s->state == DIGINET_S_IDLE && ` -> ``
 	 * input: retake-e1
-	 * mutant: transport/src/diginet_session.c:249 `&& s->cfg.auto_wake` -> ``
+	 * mutant: transport/src/diginet_session.c:258 `&& s->cfg.auto_wake` -> ``
 	 * input: retake-e1-manual
 	 * mutant: transport/src/diginet_session.c:249 `s->cfg.auto_wake` -> `!s->cfg.auto_wake`
 	 * input: online

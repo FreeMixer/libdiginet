@@ -1,4 +1,4 @@
-Breaks the check of fuzz/fuzz_transport.c:584 (a DIGINET_N_DESK notice carries no announce).
+Breaks the check of fuzz/fuzz_transport.c:592 (a DIGINET_N_DESK notice carries no announce).
 Caught by the seed input "online" of fuzz_transport.
 
 diff --git a/transport/src/diginet_session.c b/transport/src/diginet_session.c
