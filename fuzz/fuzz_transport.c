@@ -1053,7 +1053,10 @@ static void notice(void *ctx, const struct diginet_notice *n)
 		break;
 	case N_ACK_LOST:
 		check_inflight_lost(n);
-		M.fly.on = 0;   /* a lost host frame ends no session (diginet_session.h:70) */
+		M.fly.on = 0;
+		/* ONLINE --(a host frame unACKed after max_retries)--> IDLE (diginet_session.h:9, :70) */
+		if (M.state == S_ONLINE)
+			m_lost(R_ACK_LOST);
 		break;
 	case N_DESK:
 		GOT.desk++;

@@ -829,11 +829,12 @@ static void transport_seeds(void)
 	t_announce(0, 13, 0);
 	emit("transport", "c24-reboot");
 
-	/* a Control|24 that stops ACKing: its keepalive lost after max_retries ends the session,
-	 * and its next e0 wakes it again */
+	/* a Control|24 online that stops ACKing: its keepalive lost after max_retries ends the
+	 * session, and its next e0 wakes it again */
 	config(F_AUTO, 2, 1, 10, 0, 60000, 3000, 0, 48, 314);
 	t_announce(0, 13, 0);
 	t_frame(C_ACK | FROM_DESK | TO_HOST | ACK_LAST, 1, 0, 0, NULL, 0);
+	t_announce(1, 0, 0);
 	t_time(MSEC, 10);
 	for (int i = 0; i < 3; i++)
 		t_time(MSEC, 1);

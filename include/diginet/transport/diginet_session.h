@@ -6,8 +6,8 @@
  *
  *   IDLE --(desk announces e0, or e1 naming this host or another of its MACs; host sends e2)--> WAKING
  *   WAKING --(desk a0 for the e2, and an e1 naming this host)--> ONLINE
- *   ONLINE --(e0: in session a desk announces only e1; silence; an e1 naming no MAC of this
- *             host; desk e3)--> IDLE
+ *   ONLINE --(e0: in session a desk announces only e1; a host frame unACKed after max_retries;
+ *             silence; an e1 naming no MAC of this host; desk e3)--> IDLE
  *   any --(diginet_session_close: host e3)--> CLOSED
  *
  * While a session lives:
@@ -67,7 +67,7 @@ enum diginet_reason {
 	DIGINET_R_WAKE_TIMEOUT,  /* not online within wake_timeout_ms */
 	DIGINET_R_DESK_DISCONNECT, /* the desk sent e3 */
 	DIGINET_R_CLOSED,        /* the host sent e3 */
-	DIGINET_R_ACK_LOST,      /* not given: a lost host frame ends no session (an e0 does) */
+	DIGINET_R_ACK_LOST,      /* a host frame unACKed after max_retries: the desk is gone */
 };
 
 struct diginet_session_config {
