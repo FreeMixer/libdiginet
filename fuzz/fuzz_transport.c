@@ -1099,7 +1099,7 @@ static void notice(void *ctx, const struct diginet_notice *n)
 			GOT.t[GOT.n].reason = n->reason;
 		}
 		GOT.n++;
-		if (n->state == S_ONLINE)
+		if (n->state == S_ONLINE && n->old_state != S_ONLINE)   /* RENEWED is no way in */
 			check_state_online();
 		break;
 	case N_ACKED:
