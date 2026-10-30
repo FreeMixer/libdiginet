@@ -389,7 +389,7 @@ FUZZ_CHECK check_deadline(void)
 		uint64_t gone = D[i].last_rx + ms(g_gone_ms);
 		struct diginet_session *s = diginet_mux_session(&g_m, (unsigned)i);
 		/* Nor later than a present desk's gone time, nor than an attached session's deadline.
-		 * contract: diginet_mux.h:24-27, :135-136; diginet_session.h:177-178
+		 * contract: diginet_mux.h:24-27, :135-136; diginet_session.h:178-179
 		 * mutant: transport/src/diginet_mux.c:219 `k->last_rx_us + ms(m->cfg.gone_ms)` -> `k->last_rx_us + 2 * ms(m->cfg.gone_ms)`
 		 * input: gone-exact
 		 * mutant: transport/src/diginet_mux.c:220 `if (k->attached)` -> `if (0)`

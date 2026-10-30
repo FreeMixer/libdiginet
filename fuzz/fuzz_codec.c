@@ -262,7 +262,7 @@ FUZZ_CHECK check_personality(void)
 	 * contract: fuzz/spec.h SPEC_C24, SPEC_PC; docs/protocol.md:47, :49, :73, :118, :123, :135-146
 	 * mutant: src/diginet_codec.c:14 `8, 8, 0x09` -> `8, 4, 0x09`
 	 * input: encoders-procontrol
-	 * mutant: src/diginet_codec.c:13 `0x19, 1 }` -> `0x19, 0 }`
+	 * mutant: src/diginet_codec.c:13 `0x19, 0 }` -> `0x19, 1 }`
 	 * input: encoders-control24 */
 	if (!c24 || !pc || strcmp(c24->announce_name, SPEC_C24.name) || c24->device != SPEC_C24.device ||
 	    c24->strips != SPEC_C24.strips || c24->scribble_chars != SPEC_C24.chars ||
