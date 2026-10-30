@@ -1,4 +1,4 @@
-Breaks the check of fuzz/fuzz_transport.c:638 (an a0 for the e2 does not end a run of deaf wakes).
+Breaks the check of fuzz/fuzz_transport.c:640 (an a0 for the e2 does not end a run of deaf wakes).
 Caught by the seed input "deaf-reset-ack" of fuzz_transport.
 
 diff --git a/transport/src/diginet_session.c b/transport/src/diginet_session.c
