@@ -14,6 +14,7 @@ void diginet_session_config_default(struct diginet_session_config *c)
 		return;
 	memset(c, 0, sizeof *c);
 	c->auto_wake = 1;
+	c->answer_e0 = 1;
 	c->sum_mode = DIGINET_SUM_BODY;
 	c->keepalive_ms = 10000;
 	c->ack_timeout_ms = 100;
@@ -135,6 +136,21 @@ static int send_wake(struct diginet_session *s, uint64_t now_us)
 	return DIGINET_OK;
 }
 
+/* The e2 owed to a Control|24's e0: in flight before it is sent, as a data frame is, so a
+ * failed send is sent again at the ACK timeout. */
+static int send_reassert(struct diginet_session *s, uint64_t now_us)
+{
+	struct diginet_header h = { .send_counter = s->host_counter, .cmd = DIGINET_CMD_WAKE };
+	int n = diginet_frame_build(s->inflight_frame, sizeof s->inflight_frame, s->desk_mac, s->cfg.host_mac,
+				    &h, NULL, 0, s->cfg.sum_mode);
+	if (n < 0)
+		return n;
+	s->inflight_len = (size_t)n;
+	inflight_start(s, s->host_counter, now_us);
+	s->stats.tx_wakes++;
+	return send_raw(s, s->inflight_frame, s->inflight_len);
+}
+
 int diginet_session_wake(struct diginet_session *s, uint64_t now_us)
 {
 	if (!s)
@@ -228,7 +244,7 @@ static void on_announce(struct diginet_session *s, const struct diginet_frame *f
 		 * a0 does not tell its e0 in session from its e0 out of one (measured 2026-10-30):
 		 * the e0 is answered with an e2, which a desk in session ACKs and one out of it
 		 * takes the session on. */
-		else if (s->state == DIGINET_S_ONLINE && !announces_e1(s))
+		else if (s->state == DIGINET_S_ONLINE && !announces_e1(s) && s->cfg.answer_e0)
 			s->reassert = 1;
 		if (s->state == DIGINET_S_IDLE && s->cfg.auto_wake)
 			diginet_session_wake(s, now);
@@ -493,7 +509,7 @@ int diginet_session_tick(struct diginet_session *s, uint64_t now)
 
 	if (s->reassert) {
 		s->reassert = 0;
-		return send_wake(s, now);
+		return send_reassert(s, now);
 	}
 
 	/* The keepalive runs on its own clock: nothing else moves next_keepalive_us. */
@@ -538,6 +554,9 @@ uint64_t diginet_session_deadline(const struct diginet_session *s, uint64_t now)
 		if (!s->inflight)
 			d = min64(d, s->next_keepalive_us > s->backoff_until_us ? s->next_keepalive_us
 									      : s->backoff_until_us);
+		/* an e2 owed to an e0 goes as soon as the slot is free */
+		if (!s->inflight && s->reassert)
+			d = min64(d, s->backoff_until_us > now ? s->backoff_until_us : now);
 	}
 	if (s->inflight)
 		return min64(d, s->inflight_sent_us + ms(s->cfg.ack_timeout_ms));

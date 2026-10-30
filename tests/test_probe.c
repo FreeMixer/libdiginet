@@ -262,6 +262,7 @@ static void test_keepalive_stretch(void)
 	const char *args[] = { "--fd", "3", "--mac", HOST, "--listen", "4", "--keepalive", "3", "--answer", "0", NULL };
 	emu_fresh();
 	E.host_timeout_us = 1500000;   /* this desk gives up 1.5 s after the last host frame */
+	E.acks_offline = 0;            /* and stops ACKing then, so the probe sees the loss */
 	int f0 = fails;
 	run_probe(args, "", NULL);
 	CHK(has("session lost while online (desk stopped ACKing)"));

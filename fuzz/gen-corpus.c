@@ -430,7 +430,7 @@ static void codec_seeds(void)
 
 /* ---- fuzz_transport: a session ---- */
 
-enum { F_AUTO = 1, F_ZERO = 2, F_DESKSET = 4, F_RAW = 8 };
+enum { F_AUTO = 1, F_ZERO = 2, F_DESKSET = 4, F_RAW = 8, F_NOANSWER = 64 };
 
 /* the config, in the harness's units: each argument is the value the session gets */
 static void config(unsigned flags, unsigned retries, unsigned ack_ms, unsigned ka_ms, unsigned backoff_ms,
@@ -807,6 +807,14 @@ static void transport_seeds(void)
 	t_frame(C_ACK | FROM_DESK | TO_HOST | ACK_LAST, 2, 0, 0, NULL, 0);
 	t_announce(0, 13, 0);
 	emit("transport", "c24-session");
+
+	/* the same with answer_e0 off: its e0 in session is answered with nothing */
+	config(F_AUTO | F_NOANSWER, 5, 100, 10, 0, 60000, 3000, 0, 48, 314);
+	t_announce(0, 13, 0);
+	t_frame(C_ACK | FROM_DESK | TO_HOST | ACK_LAST, 1, 0, 0, NULL, 0);
+	t_announce(0, 13, 0);
+	t_time(MSEC, 10);
+	emit("transport", "c24-e0-unanswered");
 
 	/* a Control|24 that stops ACKing: its keepalive lost after max_retries ends the session,
 	 * and its next e0 wakes it again */
