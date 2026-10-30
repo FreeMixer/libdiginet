@@ -679,11 +679,11 @@ FUZZ_CHECK check_latest_control(const struct spec_frame *f)
 	 * Control|24 takes a session (measured 2026-10-30).
 	 * contract: docs/protocol.md:56, :205, A8
 	 * mutant: transport/src/diginet_session.c:105 `? 0 : s->host_counter` -> `? 0 : s->host_counter + 1`
-	 * input: online
+	 * input: data-acked
 	 * mutant: transport/src/diginet_session.c:105 `? 0 :` -> `? s->host_counter :`
 	 * input: c24-ack-lost
 	 * mutant: transport/src/diginet_session.c:146 `.send_counter = 0, .cmd` -> `.send_counter = s->host_counter, .cmd`
-	 * input: c24-session */
+	 * input: c24-e0-after-keepalive */
 	if (f->send != (f->cmd == SPEC_CMD_E2 ? 0 : M.host_counter))
 		abort();
 }

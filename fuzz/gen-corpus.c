@@ -808,6 +808,16 @@ static void transport_seeds(void)
 	t_announce(0, 13, 0);
 	emit("transport", "c24-session");
 
+	/* a Control|24 online whose keepalive has moved the counter: its e0 is answered with an e2
+	 * that still carries 0 */
+	config(F_AUTO, 5, 100, 10, 0, 60000, 3000, 0, 48, 314);
+	t_announce(0, 13, 0);
+	t_frame(C_ACK | FROM_DESK | TO_HOST | ACK_LAST, 1, 0, 0, NULL, 0);
+	t_time(MSEC, 20);
+	t_frame(C_ACK | FROM_DESK | TO_HOST | ACK_LAST, 2, 0, 0, NULL, 0);
+	t_announce(0, 13, 0);
+	emit("transport", "c24-e0-after-keepalive");
+
 	/* the same with answer_e0 off: its e0 in session is answered with nothing */
 	config(F_AUTO | F_NOANSWER, 5, 100, 10, 0, 60000, 3000, 0, 48, 314);
 	t_announce(0, 13, 0);
