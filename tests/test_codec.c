@@ -389,6 +389,12 @@ static void test_refusals(void)
 	CHK(diginet_sysex_encode(0x01, 0x40, name, sizeof name, &c) == 0);
 	CHK(diginet_sysex_encode(0x01, 0x40, (const uint8_t *)"\x80", 1, &c) == DIGINET_E_RANGE);
 	CHK(diginet_sysex_encode(0x80, 0x40, name, 1, &c) == DIGINET_E_ARG);
+	/* a len past the command is refused before any payload byte is read, even one where
+	 * len + 5 wraps */
+	CHK(diginet_sysex_encode(0x01, 0x40, name, DIGINET_CMD_MAX_LEN - 4, &c) == DIGINET_E_SPACE);
+	CHK(diginet_sysex_encode(0x01, 0x40, name, SIZE_MAX - 4, &c) == DIGINET_E_SPACE);
+	CHK(diginet_sysex_encode(0x01, 0x40, name, SIZE_MAX, &c) == DIGINET_E_SPACE);
+	CHK(c.len == sizeof name + 5);  /* untouched since the last success */
 
 	/* The body check and the frame builder refuse it however it got into the body. */
 	const uint8_t body[] = { 0x90, 0x08, 0x40, 0xf0, 0x13, 0x01, 0x70, 0x00, 0x6e,

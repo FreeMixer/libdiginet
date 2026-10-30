@@ -18,7 +18,8 @@
  *    8 u32 bits                           diginet_counter_leds_encode
  *    9 u32 addr, c1..c8                   diginet_scribble_encode
  *   10 dots s1..s8                        diginet_counter_encode (s1 the leftmost digit)
- *   11 device fn n p1..pn                 diginet_sysex_encode (n % 25 payload bytes)
+ *   11 device fn u32-hi u32-lo p1..       diginet_sysex_encode: len is the two u32s, a size_t;
+ *                                         at most 24 payload bytes follow
  *   12 addr u16-len text                  diginet_scribble_text, then diginet_scribble_encode
  *   13 u16-len text                       diginet_seg7, diginet_counter_text, then
  *                                         diginet_counter_encode
@@ -241,7 +242,7 @@ static void owe(struct call *k)
 		}
 		if (k->b > DATA_MAX)
 			break;
-		if (k->n + 5 > SPEC_CMD_MAX) {
+		if (k->n > SPEC_CMD_MAX - 5) {
 			k->want_rc = SPEC_E_SPACE;
 			return;
 		}
@@ -311,7 +312,11 @@ FUZZ_CHECK check_range(const struct call *k)
 	 * mutant: src/diginet_codec.c:138 `delta > 63` -> `delta > 64`
 	 * input: out-of-range
 	 * mutant: src/diginet_codec.c:184 `mask >> DIGINET_RING_LEDS` -> `mask >> 16`
-	 * input: out-of-range */
+	 * input: out-of-range
+	 * mutant: src/diginet_codec.c:75 `len > DIGINET_CMD_MAX_LEN - 5` -> `(uint8_t)len > DIGINET_CMD_MAX_LEN - 5`
+	 * input: sysex-len-260
+	 * mutant: src/diginet_codec.c:75 `len > DIGINET_CMD_MAX_LEN - 5` -> `len + 5 > DIGINET_CMD_MAX_LEN`
+	 * input: sysex-len-wraps */
 	if (k->rc != k->want_rc)
 		abort();
 }
@@ -616,11 +621,18 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 			for (int i = 0; i < SPEC_DIGITS; i++)
 				k.bytes[i] = fuzz_u8(&in);
 			break;
-		case SYSEX:
+		case SYSEX: {
+			/* len at the width of a size_t; the payload is at most what k.bytes holds, and a
+			 * len past it is given as read, for an encoder that reads no payload byte then */
 			k.a = fuzz_u8(&in), k.b = fuzz_u8(&in);
-			k.n = fuzz_take(&in, fuzz_u8(&in) % (SPEC_CMD_MAX + 1), &pp);
-			memcpy(k.bytes, pp, k.n);
+			uint64_t hi = fuzz_u32(&in);
+			k.n = (size_t)(hi << 32 | fuzz_u32(&in));
+			size_t got = fuzz_take(&in, k.n < SPEC_CMD_MAX ? k.n : SPEC_CMD_MAX, &pp);
+			memcpy(k.bytes, pp, got);
+			if (k.n <= SPEC_CMD_MAX)
+				k.n = got;
 			break;
+		}
 		case SCRIBBLE_TEXT:
 			/* the text's characters, then the scribble write that carries them */
 			if (!k.p) {

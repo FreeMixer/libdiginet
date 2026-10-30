@@ -1,4 +1,4 @@
-Breaks the check of fuzz/fuzz_codec.c:274 (the ProControl gets 4 scribble characters, not 8).
+Breaks the check of fuzz/fuzz_codec.c:275 (the ProControl gets 4 scribble characters, not 8).
 Caught by the seed input "encoders-procontrol" of fuzz_codec.
 
 diff --git a/src/diginet_codec.c b/src/diginet_codec.c
