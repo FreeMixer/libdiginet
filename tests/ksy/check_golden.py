@@ -76,7 +76,7 @@ def check(name, raw, fails):
     chk(len(d.padding) == len(raw) - 30 - body_len, "padding length")
     if name in ANNOUNCE:
         ver, dev = ANNOUNCE[name]
-        chk(d.body.version == ver and d.body.name == dev, f"announce {d.body.version!r} {d.body.name!r}")
+        chk(d.body.version.text == ver and d.body.name.text == dev, f"announce {d.body.version.text!r} {d.body.name.text!r}")
         chk(d.src[:3] == DESK[:3], "Digidesign OUI")
     if msgs is not None:
         got = d.body.messages
@@ -85,7 +85,7 @@ def check(name, raw, fails):
             if x[0] == 0xF0:
                 chk(m.status == 0xF0 and m.sysex.maker == 0x13, "sysex")
                 chk(m.sysex.device == x[1] and m.sysex.function == x[2], "sysex device/function")
-                chk(m.sysex.payload == bytes.fromhex(x[3]), f"sysex payload {m.sysex.payload.hex()}")
+                chk(m.sysex._raw_payload == bytes.fromhex(x[3]), f"sysex payload {m.sysex._raw_payload.hex()}")
             elif x[0] == 0:
                 chk(m.status == 0 and m.running, "keepalive 00 is a data byte with no status")
             else:
