@@ -122,12 +122,15 @@ test: $(TESTS) tests/test_probe tests/test_anyif $(PROBE) $(HELPER)
 	$(RUN_TEST) tests/test_public_sources.sh
 
 # The Kaitai grammar compiles, and the parser it generates reads the golden frames with
-# the values the C suite asserts. Needs kaitai-struct-compiler 0.11 and the Python runtime.
+# the values the C suite asserts, and the frames captured from a Control|24 with the values
+# the wire holds (tests/ksy/wire_frames.txt). Needs kaitai-struct-compiler 0.11 and the Python
+# runtime.
 KSY_OUT := build/ksy
 ksy-check:
 	@mkdir -p $(KSY_OUT)
 	kaitai-struct-compiler -t python --outdir $(KSY_OUT) protocol/diginet.ksy
 	python3 tests/ksy/check_golden.py $(KSY_OUT) $(GOLDEN)
+	python3 tests/ksy/check_wire.py $(KSY_OUT) tests/ksy/wire_frames.txt
 
 # ---- fuzzing (fuzz/README.md) ----------------------------------------------------------------
 # One libFuzzer harness per reader of desk bytes in fuzz/, each linked against a library of its
