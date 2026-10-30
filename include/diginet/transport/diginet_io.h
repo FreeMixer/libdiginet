@@ -79,6 +79,10 @@ int diginet_packet_sendto(int fd, int ifindex, const uint8_t *frame, size_t len)
  * no privilege. 0, or a negative errno (-ENODEV when there is no such interface). */
 int diginet_if_mac(int ifindex, uint8_t mac[DIGINET_MAC_LEN]);
 
+/* The MACs of this host's interfaces that have one (loopback and an all-zero MAC left out), at
+ * most cap of them: their count, or a negative errno. */
+int diginet_host_macs(uint8_t (*macs)[DIGINET_MAC_LEN], unsigned cap);
+
 /* ---- a packet socket handed over a Unix socket (SCM_RIGHTS) ---- */
 
 /* Pass descriptor `fd` over the connected AF_UNIX socket `unix_sock`, with one byte of data.
