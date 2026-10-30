@@ -314,6 +314,7 @@ static void test_gone(void)
 	 * before gone_ms; the other desk is untouched. (A ProControl: a Control|24 in an e0
 	 * session loses it sooner, on its first unACKed keepalive, and goes at gone_ms.) */
 	start("MAINUNIT", "CNTRL|24");
+	M.cfg.session.keepalive_ms = 60000;   /* nothing of ours in flight: silence, not an unACKed frame */
 	run(1 * S, 1 * MS);
 	a = diginet_mux_find(&M, DESK[0]);
 	int b = diginet_mux_find(&M, DESK[1]);

@@ -486,6 +486,12 @@ int diginet_session_tick(struct diginet_session *s, uint64_t now)
 						    .counter = s->inflight_counter,
 						    .retry = (uint16_t)s->inflight_retries };
 			s->notify(s->notify_ctx, &n);
+			/* No ACK through every retry: the desk is gone (unplugged, powered off), which
+			 * sends no e0. */
+			if (s->state == DIGINET_S_ONLINE) {
+				session_lost(s, DIGINET_R_ACK_LOST);
+				return DIGINET_OK;
+			}
 		}
 	}
 

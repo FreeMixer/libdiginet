@@ -327,18 +327,19 @@ static void test_retransmit(void)
 	CHK(S_->stats.tx_retransmits == 2 && S_->stats.ack_lost == 0);
 	CHK(emu_count_cmd(&E, fc.bytes, fc.len) == 1);   /* one first send */
 
-	/* Never ACKed: 1 + max_retries sends, then dropped and reported; the next one goes. */
+	/* Never ACKed: 1 + max_retries sends, then dropped and reported, and the session ends on it;
+	 * the desk's next e1 naming us wakes it, and the next one goes. */
 	E.drop_acks = 6;
 	struct diginet_cmd lost = fader(1, 100), next = fader(2, 200);
 	CHK(diginet_session_submit(S_, &lost) == 0);
 	run(2 * S, 1 * MS, NULL);
 	CHK(find_rx(lost.bytes, lost.len, 5) >= 0 && find_rx(lost.bytes, lost.len, 6) < 0);
 	CHK(S_->stats.ack_lost == 1 && count_kind(DIGINET_N_ACK_LOST) == 1);
-	CHK(!S_->inflight);
+	CHK(!S_->inflight && find_state(DIGINET_S_IDLE, DIGINET_R_ACK_LOST) >= 0);
 	CHK(diginet_session_submit(S_, &next) == 0);
-	run(10 * MS, 1 * MS, NULL);
+	run(10 * S, 1 * MS, NULL);
 	int k = find_rx(next.bytes, next.len, 0);
-	CHK(k >= 0 && E.log[k].acked);
+	CHK(k >= 0 && E.log[k].acked && S_->state == DIGINET_S_ONLINE);
 
 	/* A wake whose send fails changes nothing: the frame in flight is still the one
 	 * retransmitted, and no e2 reaches the desk. */
@@ -532,9 +533,12 @@ static void test_coalesce(void)
 
 /* ---- 6 ------------------------------------------------------------------------------- */
 
+static void long_keepalive(struct diginet_session_config *c) { c->keepalive_ms = 60000; }
+
 static void test_offline(void)
 {
-	start();
+	/* A desk gone silent with nothing of ours in flight: offline at offline_ms. */
+	start_with(long_keepalive);
 	go_online();
 	E.mute = 1;
 	uint64_t t0 = now;
@@ -715,14 +719,28 @@ static void test_control24(void)
 	CHK(E.wakes == 2 && last_wake_counter() == 0 && E.in_session && S_->state == DIGINET_S_ONLINE);
 	CHK(find_state(DIGINET_S_IDLE, DIGINET_R_ACK_LOST) < 0 && count_kind(DIGINET_N_ACK_LOST) == 0);
 
-	/* A ProControl that loses an ACK keeps its session: its e0 is what ends one. */
+	/* A desk that vanishes (unplugged, powered off) stops ACKing and announces nothing: the frame
+	 * it leaves unACKed through every retry ends the session within ack_timeout x (max_retries +
+	 * 1), long before offline_ms, and auto_wake takes the desk again once it is back. */
+	for (int k = 0; k < 2; k++) {
+		desk_name = k ? "CNTRL|24" : "MAINUNIT";
+		start();
+		go_online();
+		E.mute = 1;
+		struct diginet_cmd c = fader(0, 100);
+		CHK(diginet_session_submit(S_, &c) == DIGINET_OK);
+		uint64_t sent = now;
+		run(2 * S, 1 * MS, NULL);
+		int i = find_state(DIGINET_S_IDLE, DIGINET_R_ACK_LOST);
+		uint64_t bound = (uint64_t)S_->cfg.ack_timeout_ms * MS * (S_->cfg.max_retries + 1) + 2 * MS;
+		CHK(i > 0 && nlog[i - 1].kind == DIGINET_N_ACK_LOST && nlog_at[i] - sent <= bound);
+		CHK(find_state(DIGINET_S_IDLE, DIGINET_R_SILENCE) < 0);
+		E.mute = 0;
+		emu_drop_session(&E);
+		run(10 * S, 10 * MS, NULL);
+		CHK(S_->state == DIGINET_S_ONLINE && E.in_session);
+	}
 	desk_name = "MAINUNIT";
-	start();
-	go_online();
-	E.drop_acks = 6;
-	run(11 * S, 10 * MS, NULL);
-	CHK(count_kind(DIGINET_N_ACK_LOST) == 1 && find_state(DIGINET_S_IDLE, DIGINET_R_ACK_LOST) < 0);
-	CHK(S_->state == DIGINET_S_ONLINE);
 
 	/* A desk no personality describes is held to e1: an a0 alone does not bring it online. */
 	desk_name = "SOMEDESK";
