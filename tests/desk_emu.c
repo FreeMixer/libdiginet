@@ -18,7 +18,7 @@ void emu_init(struct desk_emu *e, const uint8_t mac[6], const char *name, const 
 	e->ack_wake = 1;
 	const struct diginet_personality *p = diginet_personality_from_name(e->name);
 	e->announces_session = !p || p->announces_session;
-	e->acks_offline = p && !p->announces_session;
+	e->acks_offline = p && p->desk == DIGINET_DESK_CONTROL24;
 }
 
 static void queue(struct desk_emu *e, const uint8_t *dst, uint8_t cmd, uint32_t send, uint32_t ack,

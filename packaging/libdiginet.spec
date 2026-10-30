@@ -100,13 +100,17 @@ make CFLAGS="%{optflags}" test
 
 %changelog
 * Fri Oct 30 2026 Pau Aliagas <linuxnow@gmail.com> - 0.1.3-1
-- A Control|24 that announces e0 while the host holds it online is answered
-  with an e2: out of session the desk still ACKs host frames, so only that
-  e2 brings it back. Every e2 carries send counter 0, the only counter on
-  which the desk takes a session. answer_e0 in the transport config
-  (default on) turns the answer off for a measurement of the desk's own
-  timeout. The fuzz model owes the e2 an e0 asks for, and an e0 that ends a
-  session without an e1 shows in the state (#41).
+- A Control|24 in session announces only e1 naming its host, as a ProControl
+  does, and an e0 means it is out of session: it is online on the a0 for an
+  e2 and an e1 naming this host, and after a reboot its e0 ends the session,
+  which the next wake takes again, so a host repaints on that state change.
+  Every e2 carries send counter 0, the only counter on which a Control|24
+  takes a session. The a0-alone online path and the session lost on an
+  unACKed host frame, which no desk reaches, are gone (#41).
+- A desk moved between two interfaces of one host is re-taken at once: an
+  e1 naming any MAC of this host is this host's session, not another host's;
+  the mux gives each session the host's other MACs from the io's host_macs
+  (diginet_host_macs() on the packet socket) (#40).
 
 * Fri Oct 30 2026 Pau Aliagas <linuxnow@gmail.com> - 0.1.2-1
 - A Control|24 is online on the a0 that answers our e2: it announces its
