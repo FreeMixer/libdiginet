@@ -68,9 +68,9 @@
 
 #define OPS_MAX   1024
 #define WHO       10
-/* The table holds 8 desks. contract: diginet_mux.h:57 */
+/* The table holds 8 desks. contract: diginet_mux.h:61 */
 #define SLOTS     8
-/* contract: diginet_mux.h:94-98 */
+/* contract: diginet_mux.h:102-106 */
 enum { N_APPEARED = 1, N_GONE, N_SESSION };
 
 static const uint8_t NOTDD[SPEC_MAC] = { 0x00, 0x11, 0x22, 0x33, 0x44, 0x55 };
@@ -153,7 +153,7 @@ static void op_begin(void)
 
 /* One frame on interface ifx, as the header reads it: a frame of the grammar from a present
  * desk, on its interface, is routed to it; else an announce of a Digidesign MAC no desk holds
- * makes a desk present in the lowest free slot (diginet_mux.h:9-15, :22-23) */
+ * makes a desk present in the lowest free slot (diginet_mux.h:9-19, :26-27) */
 static void m_rx(const uint8_t *frame, size_t n, int ifx)
 {
 	struct spec_frame f;
@@ -202,25 +202,25 @@ static const struct spec_desk *desk_named(const uint8_t *name)
 FUZZ_CHECK check_appear_notice(const struct diginet_mux_notice *n)
 {
 	/* An APPEARED notice comes only for the announce of a new desk while a slot is free.
-	 * contract: diginet_mux.h:9-12, :22-23
-	 * mutant: transport/src/diginet_mux.c:147 `!diginet_mac_is_digidesign(f.src) || ` -> ``
+	 * contract: diginet_mux.h:9-12, :26-27
+	 * mutant: transport/src/diginet_mux.c:155 `!diginet_mac_is_digidesign(f.src) || ` -> ``
 	 * input: set-aside
-	 * mutant: transport/src/diginet_mux.c:131 `if (i >= 0) {` -> `if (i >= 0 && 0) {`
+	 * mutant: transport/src/diginet_mux.c:139 `if (i >= 0) {` -> `if (i >= 0 && 0) {`
 	 * input: pinned */
 	if (!OW.appeared || GOT.appeared > 1)
 		abort();
 	/* It names the lowest free slot, the desk's MAC and the interface it came in on.
-	 * contract: diginet_mux.h:9-12, :99-101
-	 * mutant: transport/src/diginet_mux.c:164 `d->ifindex = ifindex;` -> `d->ifindex = 1;`
+	 * contract: diginet_mux.h:9-12, :107-109
+	 * mutant: transport/src/diginet_mux.c:172 `d->ifindex = ifindex;` -> `d->ifindex = 1;`
 	 * input: two-desks
-	 * mutant: transport/src/diginet_mux.c:153 `!m->desks[k].present` -> `!m->desks[k].present && k > 0`
+	 * mutant: transport/src/diginet_mux.c:161 `!m->desks[k].present` -> `!m->desks[k].present && k > 0`
 	 * input: two-desks */
 	if ((int)n->desk != OW.slot || !n->mac || memcmp(n->mac, OW.mac, SPEC_MAC) || n->ifindex != OW.ifx)
 		abort();
 	const struct spec_desk *want = desk_named(OW.name);
 	size_t nn = spec_strz_len(OW.name);
 	/* It carries the announce, and the desk its name selects.
-	 * contract: diginet_mux.h:96, :102-103; docs/protocol.md:47
+	 * contract: diginet_mux.h:104, :110-111; docs/protocol.md:47
 	 * mutant: transport/src/diginet_mux.c:43 `n.personality = diginet_personality_from_name(a->name);` -> `(void)0;`
 	 * input: two-desks */
 	if (!n->announce || memcmp(n->announce->name, OW.name, nn) || n->announce->name[nn] ||
@@ -231,10 +231,10 @@ FUZZ_CHECK check_appear_notice(const struct diginet_mux_notice *n)
 FUZZ_CHECK check_appear_settle(void)
 {
 	/* Every appearance owed came: a new desk's announce while a slot is free.
-	 * contract: diginet_mux.h:9-12, :22-23
-	 * mutant: transport/src/diginet_mux.c:168 `notify_desk(m, d, DIGINET_MUX_N_APPEARED, &a, NULL);` -> `(void)a;`
+	 * contract: diginet_mux.h:9-12, :26-27
+	 * mutant: transport/src/diginet_mux.c:176 `notify_desk(m, d, DIGINET_MUX_N_APPEARED, &a, NULL);` -> `(void)a;`
 	 * input: two-desks
-	 * mutant: transport/src/diginet_mux.c:152 `k < DIGINET_MUX_MAX_DESKS && !d` -> `k < DIGINET_MUX_MAX_DESKS - 1 && !d`
+	 * mutant: transport/src/diginet_mux.c:160 `k < DIGINET_MUX_MAX_DESKS && !d` -> `k < DIGINET_MUX_MAX_DESKS - 1 && !d`
 	 * input: table-full */
 	if (OW.appeared != GOT.appeared)
 		abort();
@@ -244,7 +244,7 @@ FUZZ_CHECK check_route_notice(const struct diginet_mux_notice *n)
 {
 	/* A session's notice comes under its own desk, an attached one, and a frame behind it is
 	 * that desk's.
-	 * contract: diginet_mux.h:16-19, :97
+	 * contract: diginet_mux.h:20-23, :105
 	 * mutant: transport/src/diginet_mux.c:65 `notify_desk(d->mux, d, DIGINET_MUX_N_SESSION, NULL, sn);` -> `notify_desk(d->mux, &d->mux->desks[0], DIGINET_MUX_N_SESSION, NULL, sn);`
 	 * input: two-desks */
 	if (n->desk >= SLOTS || !D[n->desk].present || !D[n->desk].attached || !n->session ||
@@ -261,12 +261,12 @@ FUZZ_CHECK check_route_settle(void)
 		uint64_t got = session_rx_count(i);
 		/* A frame of a present desk on its interface reaches its attached session, and no
 		 * other session; on another interface, or from no desk, none.
-		 * contract: diginet_mux.h:12-15, :17-19, :22-23
-		 * mutant: transport/src/diginet_mux.c:133 `if (d->ifindex != ifindex) {` -> `if (0) {`
+		 * contract: diginet_mux.h:12-19, :21-23, :26-27
+		 * mutant: transport/src/diginet_mux.c:141 `if (d->ifindex != ifindex) {` -> `if (0) {`
 		 * input: pinned
-		 * mutant: transport/src/diginet_mux.c:139 `if (d->attached)` -> `if (0)`
+		 * mutant: transport/src/diginet_mux.c:147 `if (d->attached)` -> `if (0)`
 		 * input: two-desks
-		 * mutant: transport/src/diginet_mux.c:170 `if (d->present && d->attached)` -> `if (0)`
+		 * mutant: transport/src/diginet_mux.c:178 `if (d->present && d->attached)` -> `if (0)`
 		 * input: auto-attach */
 		if (D[i].present && D[i].attached && (owed ? got <= D[i].rx_before : got != D[i].rx_before))
 			abort();
@@ -281,7 +281,7 @@ FUZZ_CHECK check_send_frame(int ifx, const uint8_t *frame, size_t len)
 	uint8_t mine[SPEC_MAC];
 	/* A frame a session sends goes to an attached desk, out of that desk's interface, from that
 	 * interface's MAC.
-	 * contract: diginet_mux.h:16-18, :74-75
+	 * contract: diginet_mux.h:20-22, :82-83
 	 * mutant: transport/src/diginet_mux.c:51 `d->ifindex, frame, len);` -> `1, frame, len);`
 	 * input: two-desks */
 	if (i < 0 || !D[i].attached || ifx != D[i].ifx || !host_mac(ifx, mine) || memcmp(f.src, mine, SPEC_MAC))
@@ -293,10 +293,10 @@ FUZZ_CHECK check_gone_notice(const struct diginet_mux_notice *n, int ticking)
 {
 	/* A desk is gone only on a tick, only when present and silent for gone_ms or its session
 	 * ended on silence.
-	 * contract: diginet_mux.h:20-23, :98
-	 * mutant: transport/src/diginet_mux.c:192 `>= ms(m->cfg.gone_ms)` -> `>= ms(m->cfg.gone_ms) / 2`
+	 * contract: diginet_mux.h:24-27, :106
+	 * mutant: transport/src/diginet_mux.c:200 `>= ms(m->cfg.gone_ms)` -> `>= ms(m->cfg.gone_ms) / 2`
 	 * input: gone-exact
-	 * mutant: transport/src/diginet_mux.c:192 `if (d->silent || ` -> `if (d->attached || `
+	 * mutant: transport/src/diginet_mux.c:200 `if (d->silent || ` -> `if (d->attached || `
 	 * input: gone-silence */
 	if (!ticking || n->desk >= SLOTS || !D[n->desk].present ||
 	    !(D[n->desk].silent || g_now - D[n->desk].last_rx >= ms(g_gone_ms)) ||
@@ -309,18 +309,18 @@ FUZZ_CHECK check_gone_settle(int ticked)
 	for (int i = 0; i < SLOTS; i++) {
 		/* After a tick no desk is left that is silent for gone_ms or whose session ended on
 		 * silence.
-		 * contract: diginet_mux.h:20-23
-		 * mutant: transport/src/diginet_mux.c:192 `>= ms(m->cfg.gone_ms)` -> `> ms(m->cfg.gone_ms)`
+		 * contract: diginet_mux.h:24-27
+		 * mutant: transport/src/diginet_mux.c:200 `>= ms(m->cfg.gone_ms)` -> `> ms(m->cfg.gone_ms)`
 		 * input: gone-exact
-		 * mutant: transport/src/diginet_mux.c:192 `if (d->silent || ` -> `if (`
+		 * mutant: transport/src/diginet_mux.c:200 `if (d->silent || ` -> `if (`
 		 * input: gone-silence
 		 * mutant: transport/src/diginet_mux.c:64 `d->silent = 1;` -> `(void)0;`
 		 * input: gone-silence */
 		if (ticked && D[i].present && (D[i].silent || g_now - D[i].last_rx >= ms(g_gone_ms)))
 			abort();
 		/* A desk gone is forgotten: its slot free and its MAC no desk's.
-		 * contract: diginet_mux.h:20-21, :98
-		 * mutant: transport/src/diginet_mux.c:179 `memset(d, 0, sizeof *d);` -> `d->silent = 0;`
+		 * contract: diginet_mux.h:24-25, :106
+		 * mutant: transport/src/diginet_mux.c:187 `memset(d, 0, sizeof *d);` -> `d->silent = 0;`
 		 * input: gone-exact */
 		if (!D[i].present && g_m.desks[i].present)
 			abort();
@@ -332,12 +332,12 @@ FUZZ_CHECK check_attach_code(int rc, int want)
 	/* attach answers DIGINET_E_ARG for a slot out of range, with no desk or attached, the io's
 	 * code when the interface has no MAC, and DIGINET_OK otherwise; detach DIGINET_E_ARG for
 	 * a desk not attached.
-	 * contract: diginet_mux.h:136-142, :144-147
+	 * contract: diginet_mux.h:144-150, :152-156
 	 * mutant: transport/src/diginet_mux.c:83 `if (!d->present || d->attached)` -> `if (!d->present)`
 	 * input: attach-refusals
 	 * mutant: transport/src/diginet_mux.c:87 `if (r < 0)` -> `if (r < -100)`
 	 * input: attach-refusals
-	 * mutant: transport/src/diginet_mux.c:103 `!m->desks[desk].attached)` -> `!m->desks[desk].present)`
+	 * mutant: transport/src/diginet_mux.c:111 `!m->desks[desk].attached)` -> `!m->desks[desk].present)`
 	 * input: attach-refusals */
 	if (rc != want)
 		abort();
@@ -349,7 +349,7 @@ FUZZ_CHECK check_attach_other_macs(const struct diginet_session *s, int i)
 	host_mac(D[i].ifx == 1 ? 2 : 1, other);
 	/* An attached desk's session knows this host's other MACs: every MAC host_macs lists but
 	 * its own interface's.
-	 * contract: diginet_mux.h:14-18, :143-145
+	 * contract: diginet_mux.h:14-19, :151-153
 	 * mutant: transport/src/diginet_mux.c:91 `if (m->io.host_macs) {` -> `if (0) {`
 	 * input: two-desks
 	 * mutant: transport/src/diginet_mux.c:96 `if (memcmp(all[i], c.host_mac, DIGINET_MAC_LEN))` -> `if (1)`
@@ -363,7 +363,7 @@ FUZZ_CHECK check_attach_session(int i)
 	struct diginet_session *s = diginet_mux_session(&g_m, (unsigned)i);
 	uint8_t mine[SPEC_MAC];
 	/* An attached desk's session talks to that desk only, from its interface's MAC.
-	 * contract: diginet_mux.h:16-17, :136-139
+	 * contract: diginet_mux.h:20-21, :144-147
 	 * mutant: transport/src/diginet_mux.c:90 `c.desk_mac_set = 1;` -> `c.desk_mac_set = 0;`
 	 * input: two-desks
 	 * mutant: transport/src/diginet_mux.c:86 `d->ifindex, c.host_mac);` -> `1, c.host_mac);`
@@ -378,8 +378,8 @@ FUZZ_CHECK check_deadline(void)
 {
 	uint64_t d = diginet_mux_deadline(&g_m, g_now);
 	/* The deadline is now or later, and never more than a second away.
-	 * contract: diginet_mux.h:127-128
-	 * mutant: transport/src/diginet_mux.c:202 `now_us + 1000000` -> `now_us + 1000001`
+	 * contract: diginet_mux.h:135-136
+	 * mutant: transport/src/diginet_mux.c:210 `now_us + 1000000` -> `now_us + 1000001`
 	 * input: set-aside */
 	if (d < g_now || d > g_now + 1000000)
 		abort();
@@ -389,10 +389,10 @@ FUZZ_CHECK check_deadline(void)
 		uint64_t gone = D[i].last_rx + ms(g_gone_ms);
 		struct diginet_session *s = diginet_mux_session(&g_m, (unsigned)i);
 		/* Nor later than a present desk's gone time, nor than an attached session's deadline.
-		 * contract: diginet_mux.h:20-23, :127-128; diginet_session.h:171-172
-		 * mutant: transport/src/diginet_mux.c:211 `k->last_rx_us + ms(m->cfg.gone_ms)` -> `k->last_rx_us + 2 * ms(m->cfg.gone_ms)`
+		 * contract: diginet_mux.h:24-27, :135-136; diginet_session.h:181-182
+		 * mutant: transport/src/diginet_mux.c:219 `k->last_rx_us + ms(m->cfg.gone_ms)` -> `k->last_rx_us + 2 * ms(m->cfg.gone_ms)`
 		 * input: gone-exact
-		 * mutant: transport/src/diginet_mux.c:212 `if (k->attached)` -> `if (0)`
+		 * mutant: transport/src/diginet_mux.c:220 `if (k->attached)` -> `if (0)`
 		 * input: two-desks */
 		if ((gone > g_now && d > gone) || (s && d > diginet_session_deadline(s, g_now)))
 			abort();
@@ -648,7 +648,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 	g_rx = NULL;
 	g_ticking = 0;
 	/* Every config made above is one the mux takes.
-	 * contract: diginet_mux.h:117-118
+	 * contract: diginet_mux.h:125-126
 	 * mutant: transport/src/diginet_mux.c:22 `!io->if_mac ||` -> `io->if_mac ||`
 	 * input: two-desks */
 	if (diginet_mux_init(&g_m, &cfg, &io, notice, NULL) != SPEC_OK)
