@@ -18,6 +18,7 @@ void emu_init(struct desk_emu *e, const uint8_t mac[6], const char *name, const 
 	e->ack_wake = 1;
 	const struct diginet_personality *p = diginet_personality_from_name(e->name);
 	e->announces_session = !p || p->announces_session;
+	e->acks_offline = p && !p->announces_session;
 }
 
 static void queue(struct desk_emu *e, const uint8_t *dst, uint8_t cmd, uint32_t send, uint32_t ack,
@@ -109,8 +110,11 @@ void emu_from_host(struct desk_emu *e, const uint8_t *buf, size_t len, uint64_t 
 		 * "Keepalive"). */
 		return;
 	case DIGINET_CMD_DATA:
-		if (!e->in_session || memcmp(f.src, e->session_mac, 6))
-			return;
+		if (!e->in_session || memcmp(f.src, e->session_mac, 6)) {
+			if (e->acks_offline && !e->foreign)
+				queue(e, f.src, DIGINET_CMD_ACK, e->seq, f.h.send_counter, 0, 0, NULL, 0);
+			return;   /* Offline: ACKed, not taken, no input */
+		}
 		e->last_host_us = now_us;
 		if (diginet_frame_is_keepalive(&f))
 			e->keepalives++;

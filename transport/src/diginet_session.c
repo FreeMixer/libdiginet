@@ -118,6 +118,23 @@ static void inflight_start(struct diginet_session *s, uint32_t counter, uint64_t
 	s->inflight_sent_us = now;
 }
 
+/* Send an e2 as the frame in flight, so its a0 is matched as any other. The e2 becomes the
+ * frame in flight only once it is sent: a failed send leaves the frame in flight, which the next
+ * retransmission sends again, as it was. */
+static int send_wake(struct diginet_session *s, uint64_t now_us)
+{
+	uint8_t e2[DIGINET_MIN_FRAME_LEN];
+	size_t e2_len;
+	int r = send_control(s, DIGINET_CMD_WAKE, 0, e2, &e2_len);
+	if (r < 0)
+		return r;
+	memcpy(s->inflight_frame, e2, e2_len);
+	s->inflight_len = e2_len;
+	s->stats.tx_wakes++;
+	inflight_start(s, s->host_counter, now_us);
+	return DIGINET_OK;
+}
+
 int diginet_session_wake(struct diginet_session *s, uint64_t now_us)
 {
 	if (!s)
@@ -130,18 +147,11 @@ int diginet_session_wake(struct diginet_session *s, uint64_t now_us)
 	}
 	s->e1_named_us = 0;
 	s->wake_acked = 0;
+	s->reassert = 0;
 	s->wake_sent_us = now_us;
-	/* The e2 becomes the frame in flight only once it is sent: a failed send leaves the
-	 * frame in flight, which the next retransmission sends again, as it was. */
-	uint8_t e2[DIGINET_MIN_FRAME_LEN];
-	size_t e2_len;
-	int r = send_control(s, DIGINET_CMD_WAKE, 0, e2, &e2_len);
+	int r = send_wake(s, now_us);
 	if (r < 0)
 		return r;
-	memcpy(s->inflight_frame, e2, e2_len);
-	s->inflight_len = e2_len;
-	s->stats.tx_wakes++;
-	inflight_start(s, s->host_counter, now_us);
 	set_state(s, DIGINET_S_WAKING, DIGINET_R_WAKE);
 	return DIGINET_OK;
 }
@@ -162,6 +172,7 @@ int diginet_session_close(struct diginet_session *s, uint64_t now_us)
 static void session_lost(struct diginet_session *s, enum diginet_reason why)
 {
 	s->inflight = 0;
+	s->reassert = 0;
 	s->desk_counter_valid = 0;
 	set_state(s, DIGINET_S_IDLE, why);
 }
@@ -213,6 +224,12 @@ static void on_announce(struct diginet_session *s, const struct diginet_frame *f
 		s->foreign = 0;
 		if (s->state == DIGINET_S_ONLINE && s->e1_named_us)
 			session_lost(s, DIGINET_R_DESK_OFFLINE);
+		/* A Control|24 out of session still ACKs every host frame and shows Offline, so an
+		 * a0 does not tell its e0 in session from its e0 out of one (measured 2026-10-30):
+		 * the e0 is answered with an e2, which a desk in session ACKs and one out of it
+		 * takes the session on. */
+		else if (s->state == DIGINET_S_ONLINE && !announces_e1(s))
+			s->reassert = 1;
 		if (s->state == DIGINET_S_IDLE && s->cfg.auto_wake)
 			diginet_session_wake(s, now);
 		return;
@@ -473,6 +490,11 @@ int diginet_session_tick(struct diginet_session *s, uint64_t now)
 
 	if (s->state != DIGINET_S_ONLINE || s->inflight || now < s->backoff_until_us)
 		return DIGINET_OK;
+
+	if (s->reassert) {
+		s->reassert = 0;
+		return send_wake(s, now);
+	}
 
 	/* The keepalive runs on its own clock: nothing else moves next_keepalive_us. */
 	if (now >= s->next_keepalive_us) {

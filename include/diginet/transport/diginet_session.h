@@ -132,6 +132,7 @@ struct diginet_session {
 	int foreign;              /* the last announce was an e1 for another host */
 	int e1_named_us;          /* since the last e2 */
 	int wake_acked;           /* since the last e2 */
+	int reassert;             /* an e2 is due in the frame slot: a Control|24 announced e0 */
 	uint64_t wake_sent_us;
 	uint32_t deaf_count;      /* wakes timed out in a row while the desk announced */
 	int announce_seen;

@@ -55,6 +55,8 @@ struct desk_emu {
 	int holds_after_e3;       /* after its host's e3, keep announcing e1 naming that host
 				   * until host_timeout_us, as a Control|24 does for ~30 s */
 	int stale;                /* a session the host closed that the desk still announces */
+	int acks_offline;         /* out of session, still ACK a host's data frames and show
+				   * Offline, as a Control|24 does (measured 2026-10-30) */
 
 	/* what the desk has seen */
 	struct emu_rx log[EMU_LOG_MAX];
