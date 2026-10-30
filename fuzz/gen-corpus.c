@@ -67,6 +67,13 @@ static void put32(uint32_t v)
 	put16(v >> 16);
 }
 
+/* a size_t as fuzz_codec reads it: two u32s, the high one first */
+static void putlen(uint64_t v)
+{
+	put32((uint32_t)(v >> 32));
+	put32((uint32_t)v);
+}
+
 /* a length-prefixed record, as fuzz_record() reads it */
 static void put_rec(const uint8_t *p, size_t n)
 {
@@ -297,7 +304,7 @@ static void codec_seeds(void)
 		op(8, desk); put32(0x7f);
 		op(9, desk); put32(0x20); put("OMX1Mix8", 8);
 		op(10, desk); put8(0x05); put(seg, 8);
-		op(11, desk); put8(0x01); put8(DIGINET_FN_METER); put8(3); put(pl, 3);
+		op(11, desk); put8(0x01); put8(DIGINET_FN_METER); putlen(3); put(pl, 3);
 		emit("codec", desk == C24 ? "encoders-control24" : "encoders-procontrol");
 	}
 
@@ -320,10 +327,10 @@ static void codec_seeds(void)
 	op(9, C24); put32(0x01); put("ab\x80" "defgh", 8);
 	op(10, C24); put8(0x80); put(seg, 8);
 	op(10, C24); put8(0); put8(0x80); put(seg + 1, 7);
-	op(11, C24); put8(0x80); put8(0x10); put8(0);
-	op(11, C24); put8(0x01); put8(0x80); put8(0);
-	op(11, C24); put8(0x01); put8(0x10); put8(20); put("01234567890123456789", 20);
-	op(11, C24); put8(0x01); put8(0x10); put8(1); put8(0x80);
+	op(11, C24); put8(0x80); put8(0x10); putlen(0);
+	op(11, C24); put8(0x01); put8(0x80); putlen(0);
+	op(11, C24); put8(0x01); put8(0x10); putlen(20); put("01234567890123456789", 20);
+	op(11, C24); put8(0x01); put8(0x10); putlen(1); put8(0x80);
 	/* each argument 1, at its width: only the missing personality is wrong */
 	for (unsigned k = 0; k <= 10; k++) {
 		static const uint8_t U32S[11] = { 2, 3, 2, 2, 1, 1, 3, 2, 1, 1, 0 };
@@ -355,7 +362,7 @@ static void codec_seeds(void)
 		op(8, desk); put32(0x7f);
 		op(9, desk); put32(0x7f); put("\x7f\x7f\x7f\x7f\x7f\x7f\x7f\x7f", 8);
 		op(10, desk); put8(0x7f); put("\x7f\x7f\x7f\x7f\x7f\x7f\x7f\x7f", 8);
-		op(11, desk); put8(0x7f); put8(0x7f); put8(19); put(pl19, 19);
+		op(11, desk); put8(0x7f); put8(0x7f); putlen(19); put(pl19, 19);
 	}
 	emit("codec", "edges");
 
@@ -396,9 +403,11 @@ static void codec_seeds(void)
 	emit("codec", "fader-strip-256");
 	op(0, C24); put32(0); put32(DIGINET_FADER_MAX);
 	emit("codec", "fader-full");
-	op(11, C24); put8(0x01); put8(DIGINET_FN_SYSTEM); put8(2); put("\x00\x00", 2);
-	op(11, C24); put8(0x80); put8(DIGINET_FN_SYSTEM); put8(0);
+	op(11, C24); put8(0x01); put8(DIGINET_FN_SYSTEM); putlen(2); put("\x00\x00", 2);
+	op(11, C24); put8(0x80); put8(DIGINET_FN_SYSTEM); putlen(0);
 	emit("codec", "sysex-system");
+	op(11, C24); put8(0x01); put8(0x10); putlen(260); put8(0x80);
+	emit("codec", "sysex-len-260");
 	op(13, C24); put16(9); put("12345678.", 9);
 	emit("codec", "counter-text-last-dot");
 
