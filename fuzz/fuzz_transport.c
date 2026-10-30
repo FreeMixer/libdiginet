@@ -544,7 +544,7 @@ FUZZ_CHECK check_state_online(void)
 {
 	/* ONLINE only after the desk's a0 for the e2 and an e1 naming this host since that e2.
 	 * contract: diginet_session.h:8, :63; docs/protocol.md:49
-	 * mutant: transport/src/diginet_session.c:203 `s->wake_acked && (` -> `(`
+	 * mutant: transport/src/diginet_session.c:203 `s->wake_acked && ` -> ``
 	 * input: e1-before-ack
 	 * mutant: transport/src/diginet_session.c:203 `s->wake_acked && s->e1_named_us` -> `s->wake_acked`
 	 * input: online */
@@ -784,7 +784,9 @@ FUZZ_CHECK check_state_settle(void)
 	 * mutant: transport/src/diginet_session.c:247 `if (names_other_host_mac(s, &a)) {` -> `if (0) {`
 	 * input: retake-other-if
 	 * mutant: transport/src/diginet_session.c:193 `i < s->cfg.n_other_host_macs;` -> `i < 0;`
-	 * input: retake-other-if */
+	 * input: retake-other-if
+	 * mutant: transport/src/diginet_session.c:231 `if (s->state == DIGINET_S_ONLINE)` -> `if (0)`
+	 * input: c24-reboot */
 	if (GOT.e2 != OW.e2)
 		abort();
 	/* An e3 goes on close, to a known desk not in another host's session, once.
@@ -832,16 +834,14 @@ FUZZ_CHECK check_state_settle(void)
 	 * mutant: transport/src/diginet_session.c:460 `>= ms(s->cfg.wake_timeout_ms)` -> `> ms(s->cfg.wake_timeout_ms)`
 	 * input: wake-timeout-exact
 	 * mutant: transport/src/diginet_session.c:472 `>= ms(s->cfg.offline_ms)` -> `> ms(s->cfg.offline_ms)`
-	 * input: silence-exact
-	 * mutant: transport/src/diginet_session.c:231 `if (s->state == DIGINET_S_ONLINE)` -> `if (0)`
-	 * input: c24-reboot */
+	 * input: silence-exact */
 	if (!same)
 		abort();
 	/* Each change names its reason.
 	 * contract: diginet_session.h:59-71
 	 * mutant: transport/src/diginet_session.c:473 `DIGINET_R_SILENCE` -> `DIGINET_R_WAKE_TIMEOUT`
 	 * input: silence
-	 * mutant: transport/src/diginet_session.c:231 `DIGINET_R_DESK_OFFLINE` -> `DIGINET_R_SILENCE`
+	 * mutant: transport/src/diginet_session.c:232 `DIGINET_R_DESK_OFFLINE` -> `DIGINET_R_SILENCE`
 	 * input: c24-reboot */
 	if (!why)
 		abort();
