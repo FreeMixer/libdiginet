@@ -10,7 +10,7 @@
 /* ---- personalities ---------------------------------------------------------------- */
 
 static const struct diginet_personality personalities[] = {
-	{ DIGINET_DESK_CONTROL24,  "CNTRL|24", 0x01, 24, 4, 0x19, 1 },
+	{ DIGINET_DESK_CONTROL24,  "CNTRL|24", 0x01, 24, 4, 0x19, 0 },
 	{ DIGINET_DESK_PROCONTROL, "MAINUNIT", 0x00,  8, 8, 0x09, 1 },
 };
 
@@ -72,7 +72,7 @@ int diginet_sysex_encode(uint8_t device, uint8_t fn, const uint8_t *payload, siz
 		return DIGINET_E_REFUSED;
 	if (fn > 0x7f)
 		return DIGINET_E_RANGE;
-	if (len + 5 > DIGINET_CMD_MAX_LEN)
+	if (len > DIGINET_CMD_MAX_LEN - 5)   /* len + 5 would wrap for a len near SIZE_MAX */
 		return DIGINET_E_SPACE;
 	for (size_t i = 0; i < len; i++)
 		if (payload[i] & 0x80)

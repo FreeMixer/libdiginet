@@ -67,6 +67,13 @@ static void put32(uint32_t v)
 	put16(v >> 16);
 }
 
+/* a size_t as fuzz_codec reads it: two u32s, the high one first */
+static void putlen(uint64_t v)
+{
+	put32((uint32_t)(v >> 32));
+	put32((uint32_t)v);
+}
+
 /* a length-prefixed record, as fuzz_record() reads it */
 static void put_rec(const uint8_t *p, size_t n)
 {
@@ -297,7 +304,7 @@ static void codec_seeds(void)
 		op(8, desk); put32(0x7f);
 		op(9, desk); put32(0x20); put("OMX1Mix8", 8);
 		op(10, desk); put8(0x05); put(seg, 8);
-		op(11, desk); put8(0x01); put8(DIGINET_FN_METER); put8(3); put(pl, 3);
+		op(11, desk); put8(0x01); put8(DIGINET_FN_METER); putlen(3); put(pl, 3);
 		emit("codec", desk == C24 ? "encoders-control24" : "encoders-procontrol");
 	}
 
@@ -320,10 +327,10 @@ static void codec_seeds(void)
 	op(9, C24); put32(0x01); put("ab\x80" "defgh", 8);
 	op(10, C24); put8(0x80); put(seg, 8);
 	op(10, C24); put8(0); put8(0x80); put(seg + 1, 7);
-	op(11, C24); put8(0x80); put8(0x10); put8(0);
-	op(11, C24); put8(0x01); put8(0x80); put8(0);
-	op(11, C24); put8(0x01); put8(0x10); put8(20); put("01234567890123456789", 20);
-	op(11, C24); put8(0x01); put8(0x10); put8(1); put8(0x80);
+	op(11, C24); put8(0x80); put8(0x10); putlen(0);
+	op(11, C24); put8(0x01); put8(0x80); putlen(0);
+	op(11, C24); put8(0x01); put8(0x10); putlen(20); put("01234567890123456789", 20);
+	op(11, C24); put8(0x01); put8(0x10); putlen(1); put8(0x80);
 	/* each argument 1, at its width: only the missing personality is wrong */
 	for (unsigned k = 0; k <= 10; k++) {
 		static const uint8_t U32S[11] = { 2, 3, 2, 2, 1, 1, 3, 2, 1, 1, 0 };
@@ -355,7 +362,7 @@ static void codec_seeds(void)
 		op(8, desk); put32(0x7f);
 		op(9, desk); put32(0x7f); put("\x7f\x7f\x7f\x7f\x7f\x7f\x7f\x7f", 8);
 		op(10, desk); put8(0x7f); put("\x7f\x7f\x7f\x7f\x7f\x7f\x7f\x7f", 8);
-		op(11, desk); put8(0x7f); put8(0x7f); put8(19); put(pl19, 19);
+		op(11, desk); put8(0x7f); put8(0x7f); putlen(19); put(pl19, 19);
 	}
 	emit("codec", "edges");
 
@@ -396,9 +403,13 @@ static void codec_seeds(void)
 	emit("codec", "fader-strip-256");
 	op(0, C24); put32(0); put32(DIGINET_FADER_MAX);
 	emit("codec", "fader-full");
-	op(11, C24); put8(0x01); put8(DIGINET_FN_SYSTEM); put8(2); put("\x00\x00", 2);
-	op(11, C24); put8(0x80); put8(DIGINET_FN_SYSTEM); put8(0);
+	op(11, C24); put8(0x01); put8(DIGINET_FN_SYSTEM); putlen(2); put("\x00\x00", 2);
+	op(11, C24); put8(0x80); put8(DIGINET_FN_SYSTEM); putlen(0);
 	emit("codec", "sysex-system");
+	op(11, C24); put8(0x01); put8(0x10); putlen(260); put8(0x80);
+	emit("codec", "sysex-len-260");
+	op(11, C24); put8(0x01); put8(0x10); putlen(UINT64_MAX - 4); put8(0x00);
+	emit("codec", "sysex-len-wraps");
 	op(13, C24); put16(9); put("12345678.", 9);
 	emit("codec", "counter-text-last-dot");
 
@@ -597,6 +608,15 @@ static void transport_seeds(void)
 	put8(T_WAKE);
 	t_announce(0, 13, 1);
 	emit("transport", "e0-after-failed-wake");
+
+	/* online, a wake whose send fails, then the desk's e1 naming us: the session is still online,
+	 * and that first e1 since the failed wake is RENEWED (the host shows everything again) */
+	config_default(F_AUTO);
+	online();
+	put8(T_FAIL);
+	put8(T_WAKE);
+	t_announce(1, 0, 1);
+	emit("transport", "e1-after-failed-wake");
 
 	/* a frame of commands that goes, then no ACK for ack_timeout: the same frame again */
 	config(F_AUTO, 3, 10, 60000, 0, 60000, 3000, 0, 48, 314);
@@ -819,14 +839,15 @@ static void transport_seeds(void)
 	config_default(F_AUTO | F_RAW);
 	t_rawcmd(DIGINET_KEY_LEDS, 1, 0, SYS, 4);
 	emit("transport", "submit-system-cut-short");
-	/* a Control|24: online on the a0 and its e1 naming us, which it announces in session, its
-	 * keepalive ACKed */
+	/* a Control|24 just booted: online on the a0 alone, its keepalive ACKed; its e0 then is
+	 * owed an e2 in the frame slot, which it ACKs, and it announces e1 naming us */
 	config(F_AUTO, 5, 100, 10, 0, 60000, 3000, 0, 48, 314);
 	t_announce(0, 13, 0);
 	t_frame(C_ACK | FROM_DESK | TO_HOST | ACK_LAST, 1, 0, 0, NULL, 0);
-	t_announce(1, 0, 0);
 	t_time(MSEC, 10);
 	t_frame(C_ACK | FROM_DESK | TO_HOST | ACK_LAST, 2, 0, 0, NULL, 0);
+	t_announce(0, 13, 0);
+	t_frame(C_ACK | FROM_DESK | TO_HOST | ACK_LAST, 3, 0, 0, NULL, 0);
 	t_announce(1, 0, 0);
 	emit("transport", "c24-session");
 
@@ -879,6 +900,13 @@ static void transport_seeds(void)
 	t_frame(C_ACK | FROM_DESK | TO_HOST | ACK_LAST, 1, 0, 0, NULL, 0);
 	t_announce(1, 0, 0);
 	emit("transport", "retake-e1");
+
+	/* the host restarted while the desk holds the session: the e1 naming us wakes it, and the
+	 * a0 for that e2 brings it online with no new e1 after it */
+	config_default(F_AUTO);
+	t_announce(1, 0, 1);
+	t_frame(C_ACK | FROM_DESK | TO_HOST | ACK_LAST, 1, 0, 0, NULL, 0);
+	emit("transport", "restart-in-session");
 
 	/* without auto_wake the e1 naming us wakes nothing */
 	config_default(0);

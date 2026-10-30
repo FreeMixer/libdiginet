@@ -99,8 +99,8 @@ static const uint8_t SPEC_BCAST[SPEC_MAC] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff
 
 /* The two desks. contract: docs/protocol.md:47 (the announce names), :146 (the device byte),
  * :73 (24 faders), :123 (the ProControl's displays 00..07, 8 characters each), :118 (the
- * Control|24's 4 characters), :135 and :138 (the counter at 0x19, at 0x09), :49 (both desks
- * announce e1 in session) */
+ * Control|24's 4 characters), :135 and :138 (the counter at 0x19, at 0x09), :49 (a ProControl
+ * announces e1 once online, a Control|24 only after the host has sent in its session) */
 struct spec_desk {
 	const char *name;
 	uint8_t device;
@@ -109,7 +109,7 @@ struct spec_desk {
 	uint8_t counter;
 	uint8_t announces;
 };
-static const struct spec_desk SPEC_C24 = { "CNTRL|24", 0x01, 24, 4, 0x19, 1 };
+static const struct spec_desk SPEC_C24 = { "CNTRL|24", 0x01, 24, 4, 0x19, 0 };
 static const struct spec_desk SPEC_PC = { "MAINUNIT", 0x00, 8, 8, 0x09, 1 };
 
 /* ---- the library's API, as its header promises it ---------------------------------------- */
@@ -128,21 +128,21 @@ static const struct spec_desk SPEC_PC = { "MAINUNIT", 0x00, 8, 8, 0x09, 1 };
 #define SPEC_E_REFUSED    (-10)
 #define SPEC_E_RANGE      (-11)
 
-/* The event kinds. contract: include/diginet/diginet_codec.h:180-194 */
+/* The event kinds. contract: include/diginet/diginet_codec.h:181-195 */
 enum {
 	SPEC_EV_FADER = 1, SPEC_EV_TOUCH, SPEC_EV_STRIP_BUTTON, SPEC_EV_SECTION_BUTTON,
 	SPEC_EV_VPOT, SPEC_EV_JOG, SPEC_EV_RING, SPEC_EV_METER, SPEC_EV_STRIP_LEDS,
 	SPEC_EV_SCRIBBLE, SPEC_EV_COUNTER, SPEC_EV_SYSTEM, SPEC_EV_OTHER,
 };
 
-/* The key of a command, kind << 16 | address. contract: include/diginet/diginet_codec.h:51-65 */
+/* The key of a command, kind << 16 | address. contract: include/diginet/diginet_codec.h:52-66 */
 enum {
 	SPEC_KEY_FADER = 1, SPEC_KEY_LED, SPEC_KEY_RING, SPEC_KEY_METER, SPEC_KEY_LEDS,
 	SPEC_KEY_COUNTER, SPEC_KEY_SCRIBBLE, SPEC_KEY_INPUT, SPEC_KEY_KEEPALIVE,
 };
 #define SPEC_KEY(kind, addr) ((uint32_t)(kind) << 16 | ((uint32_t)(addr) & 0xffff))
 
-/* The longest command an encoder makes. contract: include/diginet/diginet_codec.h:49 */
+/* The longest command an encoder makes. contract: include/diginet/diginet_codec.h:50 */
 #define SPEC_CMD_MAX     24
 
 /* ---- reading bytes ------------------------------------------------------------------------- */
@@ -262,7 +262,7 @@ static inline size_t spec_strz_len(const uint8_t *p)
 
 /* Where F0 13 xx 70 starts in a body, whole or cut short, or -1. A host never sends this
  * family: it writes the desk's memory (docs/protocol.md:140-144), and diginet.h:113-114 and
- * diginet_codec.h:175-176 say a body holding it is refused. contract: docs/protocol.md:140 */
+ * diginet_codec.h:176-177 say a body holding it is refused. contract: docs/protocol.md:140 */
 static inline long spec_system_at(const uint8_t *b, size_t len)
 {
 	for (size_t i = 0; i + 3 < len; i++)
@@ -439,7 +439,7 @@ static inline void spec_event_of(const uint8_t *b, const struct spec_msg *m, str
 	switch (s[2]) {
 	case SPEC_FN_RING:
 		/* (tt | 40 if LED 1) b1 b2: docs/protocol.md:94, b1 bits 6..0 LEDs 2..8, b2 bits
-		 * 6..0 LEDs 9..15; LED L is bit L - 1 of the mask (diginet_codec.h:106) */
+		 * 6..0 LEDs 9..15; LED L is bit L - 1 of the mask (diginet_codec.h:107) */
 		if (pn != 3)
 			return;
 		e->kind = SPEC_EV_RING;
