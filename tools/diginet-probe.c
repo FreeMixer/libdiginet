@@ -422,6 +422,7 @@ int main(int argc, char **argv)
 	struct diginet_session_config cfg;
 	diginet_session_config_default(&cfg);
 	cfg.auto_wake = 0;
+	cfg.answer_e0 = 0;   /* the probe measures the desk as it is: a session it drops stays dropped (R5) */
 	unsigned listen_s = 60, wait_s = 30, answer_s = 60, keepalive_s = 10;
 	static const struct option opts[] = {
 		{ "interface", required_argument, 0, 'i' }, { "fd", required_argument, 0, 'F' },

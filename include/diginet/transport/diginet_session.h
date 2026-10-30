@@ -69,6 +69,9 @@ struct diginet_session_config {
 	uint8_t desk_mac[DIGINET_MAC_LEN]; /* used when desk_mac_set: talk to this desk only */
 	int desk_mac_set;
 	int auto_wake;                  /* send e2 on an e0 or an e1 naming this host, while IDLE */
+	int answer_e0;                  /* send e2 on a Control|24's e0 while ONLINE (default 1): out
+					 * of session it still ACKs host frames, so only this brings it
+					 * back; a measurement of the desk's own timeout turns it off */
 	enum diginet_sum_mode sum_mode; /* the header sum of host frames */
 	uint32_t keepalive_ms;          /* 10000 */
 	uint32_t ack_timeout_ms;        /* 100 */
@@ -132,6 +135,7 @@ struct diginet_session {
 	int foreign;              /* the last announce was an e1 for another host */
 	int e1_named_us;          /* since the last e2 */
 	int wake_acked;           /* since the last e2 */
+	int reassert;             /* an e2 is due in the frame slot: a Control|24 announced e0 */
 	uint64_t wake_sent_us;
 	uint32_t deaf_count;      /* wakes timed out in a row while the desk announced */
 	int announce_seen;

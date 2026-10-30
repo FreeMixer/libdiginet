@@ -232,7 +232,10 @@ static void test_two_desks(void)
 	/* minutes of both: keepalives each on its own interface, neither session lost */
 	run(60 * S, 10 * MS);
 	CHK(sess(a)->state == DIGINET_S_ONLINE && sess(b)->state == DIGINET_S_ONLINE);
-	CHK(E[0].keepalives >= 5 && E[1].keepalives >= 5 && E[0].wakes == 1 && E[1].wakes == 1);
+	/* a Control|24's e0 is answered with an e2 (it ACKs out of session), so wakes go on; the
+	 * sessions never change state */
+	CHK(E[0].keepalives >= 5 && E[1].keepalives >= 5 && E[0].wakes >= 1 && E[1].wakes >= 1);
+	CHK(E[0].in_session && E[1].in_session && sess(a)->stats.ack_lost == 0 && sess(b)->stats.ack_lost == 0);
 	CHK(count(DIGINET_MUX_N_GONE, -1) == 0 && wrong_src == 0);
 	/* frames only to the two interfaces the desks are on */
 	unsigned other = 0;
