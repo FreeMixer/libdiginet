@@ -751,6 +751,18 @@ static void transport_seeds(void)
 	put8(T_POLL); put8(0); put_rec(NULL, 0);
 	emit("transport", "wake-poll");
 
+	/* online, one command queued, then a poll whose recv hands over the desk's a0 for counter
+	 * 1 twice: the tick after the first copy sends the command at counter 1, and the second
+	 * copy is its ACK */
+	config_default(F_AUTO);
+	online();
+	t_tagged(DIGINET_KEY_FADER, 1, 0, 5, "\x10\x20");
+	h.cmd = DIGINET_CMD_ACK;
+	h.ack_counter = 1;
+	n = diginet_frame_build(f, sizeof f, HOST, DESK, &h, NULL, 0, DIGINET_SUM_BODY);
+	put8(T_POLL); put8(1); put_rec(f, (size_t)n);
+	emit("transport", "poll-twice-ack-new-frame");
+
 	/* latest wins: two values for one fader, then sent; one value for an input key, twice */
 	config_default(F_AUTO);
 	online();

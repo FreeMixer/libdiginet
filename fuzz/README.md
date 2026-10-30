@@ -93,9 +93,10 @@ The header comment of each harness states its properties in full; in short:
 chose. It runs the session the header describes on its own: the desk it learns, its state and
 the reason of each change, the handshake since the last e2, the desk's latest announce, the frame
 in flight and its retransmissions, the keepalive clock, the back-off after a desk retry, the
-display pacing, the host's counter and the queue of commands. Before each operation it works out
-what the operation owes; every frame and notice the library then gives is held to the model as it
-happens, and the state, the timers and the queue after it. Its properties: every frame sent is
+display pacing, the host's counter and the queue of commands. Before each operation, and in a
+poll before each frame its recv hands over, it works out what the operation owes; every frame
+and notice the library then gives is held to the model as it happens, and the state, the timers
+and the queue after it. Its properties: every frame sent is
 the grammar's, to the known desk, padded, with the sum its mode asks and no system family; every
 desk data frame ACKed once with its counter; one frame in flight, retransmitted never early, never
 past `max_retries`, always once due; ONLINE only after the a0 and an e1 naming this host; an e2
@@ -221,7 +222,8 @@ build/fuzz/fuzz_<harness> fuzz/findings/<harness>-crash-<sha1>
 
 prints the sanitizer report or the aborted property with its stack. Once the bug is fixed, the
 input, or a seed in `fuzz/gen-corpus.c` that reaches the same path, goes into the corpus so
-every later run replays it first. Two are there now, each from a bug `fuzz_transport` found:
+every later run replays it first. Three are there now: two from bugs `fuzz_transport` found in
+the session, one from a bug in `fuzz_transport` itself:
 
 - `transport/wake-fails-in-flight`: a `diginet_session_wake()` whose send failed had already
   written its e2 over the frame in flight, so the next retransmission sent that e2, with a
@@ -229,3 +231,7 @@ every later run replays it first. Two are there now, each from a bug `fuzz_trans
 - `transport/split-system`: two commands each whole alone, the first ending `F0 13` and the
   second starting `A0 70`, made F0 13 A0 70 side by side; the builder refused the frame and
   every command taken for it was dropped without a notice (`check_latest_sent`).
+- `transport/poll-twice-ack-new-frame`: when poll's recv handed a frame over twice, the model
+  judged both copies before the poll ran, but the tick between them can send a queued command;
+  a second copy that was the desk's a0 for that command stopped a session that did nothing
+  wrong (`check_inflight_acked`).

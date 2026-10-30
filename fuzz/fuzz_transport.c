@@ -51,11 +51,11 @@
  * learns, its state and the reason of each change, the handshake since the last e2, the
  * desk's latest announce, the frame in flight and its retransmissions, the keepalive clock,
  * the back-off after a desk retry, the display pacing, the host's counter and the queue of
- * commands. Before each operation it works out what the operation owes (the state changes,
- * the frames and notices); then the library runs, every frame it sends and every notice it
- * gives is held to the model as it happens, and the state, the timers and the queue are held
- * to it after. A frame the session sends is read with the harness's own reader. No expected
- * value comes from the library; the failure of a send is the harness's own choice.
+ * commands. Before each operation (in a poll, each frame) it works out what the operation owes
+ * (the state changes, the frames and notices); then the library runs, every frame it sends and
+ * every notice it gives is held to the model as it happens, and the state, the timers and the
+ * queue are held to it after. A frame the session sends is read with the harness's own reader.
+ * No expected value comes from the library; the failure of a send is the harness's own choice.
  *
  * Properties, each an abort() in a check_ function:
  *   - sent: every frame the session sends is a frame of the grammar from this host to the
@@ -1027,6 +1027,15 @@ static int io_recv(void *ctx, uint8_t *buf, size_t cap, int timeout_ms)
 		return 0;
 	g_rx_times--;
 	size_t n = g_rx_len < cap ? g_rx_len : cap;
+	/* The model takes each frame just before the session reads it, so a second copy is held
+	 * to what the session sent after the first; an empty frame leaves the poll's tick alone.
+	 * The tick between two frames needs no model step: it comes at the time of the tick
+	 * m_rx() ends with or, after a frame the session does not read, with nothing changed
+	 * since the last tick, and every step of time ends in one. */
+	if (n)
+		m_rx(g_rx, n);
+	else
+		m_tick();
 	memcpy(buf, g_rx, n);
 	return (int)n;
 }
@@ -1116,14 +1125,8 @@ static void receive(const uint8_t *p, size_t n, int by_poll, unsigned poll_flags
 		int twice = poll_flags & 1, fails = poll_flags >> 1 & 1;
 		spec_read_frame(frame, got, &f);
 		g_rx_send = f.send;
-		/* poll: recv, then the frame, then a tick, then whatever else is waiting */
-		if (!fails) {
-			if (got)
-				m_rx(frame, got);
-			m_tick();
-			if (twice && got)
-				m_rx(frame, got);
-		}
+		/* poll: recv, then the frame, then a tick, then whatever else is waiting; io_recv()
+		 * runs the model of each */
 		ticked = !fails;
 		g_rx = frame;
 		g_rx_len = got;
