@@ -109,6 +109,10 @@ make CFLAGS="%{optflags}" test
   batch moves of one fader, the desk's counter step, the v of the version in
   the announce, the desk's own 0x70 messages, and stale bytes at or above
   0x80 in the padding (#52).
+- The transport fuzz harness runs its model in the order poll hands the
+  frames over, holds poll's result, and holds the session deadline to when
+  the session next has work, an e2 owed to a Control|24's e0 included
+  (#51, from Sami Jawhar).
 
 * Fri Oct 30 2026 Pau Aliagas <linuxnow@gmail.com> - 0.1.4-1
 - A desk that vanishes, unplugged or powered off, sends no e0 and stops
