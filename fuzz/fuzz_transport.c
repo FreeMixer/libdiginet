@@ -69,7 +69,7 @@
  *     flight and only for it, DIGINET_N_ACK_LOST after exactly max_retries; the deadline is
  *     never later than the next retransmission, nor than a second away, and with tagged
  *     commands it is the first of the wake timeout, the silence, the keepalive held past a
- *     back-off, the retransmission and a command that may go.
+ *     back-off, an e2 owed to a Control|24's e0, the retransmission and a command that may go.
  *   - state: the session changes state exactly as the header's diagram says, for the reason
  *     it names: ONLINE only after an a0 for its e2 and, from a desk that announces e1, an e1
  *     naming this host since that e2; an e1 naming one of this host's other MACs is its own
@@ -299,9 +299,10 @@ static void m_tick(void)
 
 /* when the session next has work, the latest a tick may come: the first of the wake timeout,
  * the silence, the retransmission of the frame in flight and, while nothing is in flight, the
- * keepalive (held past a back-off) and a command that may go once a back-off ends and, when
- * every pending command is a display write, the display gap has passed; a second away at most,
- * and now once that time has passed (diginet_session.h:185, :9-10, :16-19, :22-23, :66, :68) */
+ * keepalive (held past a back-off), an e2 owed to a Control|24's e0 once a back-off ends, and
+ * a command that may go once a back-off ends and, when every pending command is a display
+ * write, the display gap has passed; a second away at most, and now once that time has passed
+ * (diginet_session.h:185, :9-10, :16-19, :22-23, :66, :68, :148) */
 static uint64_t m_deadline(void)
 {
 	uint64_t d = g_now + 1000000, t;
@@ -315,6 +316,11 @@ static uint64_t m_deadline(void)
 		t = M.next_ka > M.backoff_until ? M.next_ka : M.backoff_until;
 		if (t < d)
 			d = t;
+		if (M.reassert) {
+			t = M.backoff_until > g_now ? M.backoff_until : g_now;
+			if (t < d)
+				d = t;
+		}
 	}
 	if (M.fly.on) {
 		if (M.fly.sent + ms(g_cfg.ack_timeout_ms) < d)
@@ -960,7 +966,7 @@ FUZZ_CHECK check_inflight_deadline(void)
 	 * (m_deadline()): a later one leaves that work waiting, a sooner one spins a poll loop. In
 	 * raw mode the model keeps no queue and no keepalive clock. It runs after every other check
 	 * of the operation, so a bug those checks see is named by them first.
-	 * contract: diginet_session.h:185, :9-10, :16-19, :22-23, :66, :68
+	 * contract: diginet_session.h:185, :9-10, :16-19, :22-23, :66, :68, :148
 	 * mutant: transport/src/diginet_session.c:592 `s->state == DIGINET_S_ONLINE && s->queued` -> `0`
 	 * input: coalesce
 	 * mutant: transport/src/diginet_session.c:577 `s->state == DIGINET_S_WAKING` -> `0`
@@ -976,7 +982,9 @@ FUZZ_CHECK check_inflight_deadline(void)
 	 * mutant: transport/src/diginet_session.c:597 `display_only && s->display_sent` -> `0`
 	 * input: display-gap-exact
 	 * mutant: transport/src/diginet_session.c:547 `+= ms(s->cfg.keepalive_ms);` -> `+= 2 * ms(s->cfg.keepalive_ms);`
-	 * input: keepalive-clock */
+	 * input: keepalive-clock
+	 * mutant: transport/src/diginet_session.c:587 `if (!s->inflight && s->reassert)` -> `if (0)`
+	 * input: c24-e0-during-backoff */
 	if (diginet_session_deadline(&g_s, g_now) != m_deadline())
 		abort();
 }

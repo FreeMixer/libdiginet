@@ -851,6 +851,19 @@ static void transport_seeds(void)
 	t_announce(1, 0, 0);
 	emit("transport", "c24-session");
 
+	/* a Control|24 online on its a0 whose data frame was a retry: its e0 is owed an e2, which
+	 * waits for the back-off to end, so the deadline is that end; then the e2 goes, the desk
+	 * ACKs it and announces e1 naming us */
+	config(F_AUTO, 5, 100, 10000, 10, 60000, 3000, 0, 48, 314);
+	t_announce(0, 13, 0);
+	t_frame(C_ACK | FROM_DESK | TO_HOST | ACK_LAST, 1, 0, 0, NULL, 0);
+	t_frame(C_DATA | FROM_DESK | TO_HOST, 0x40, 0, 1, MUTE, sizeof MUTE);
+	t_announce(0, 13, 0);
+	t_time(MSEC, 10);
+	t_frame(C_ACK | FROM_DESK | TO_HOST | ACK_LAST, 2, 0, 0, NULL, 0);
+	t_announce(1, 0, 0);
+	emit("transport", "c24-e0-during-backoff");
+
 	/* a Control|24 rebooted while online, its keepalive having moved the counter: its e0 ends
 	 * the session, and the wake that follows carries 0 */
 	config(F_AUTO, 5, 100, 10, 0, 60000, 3000, 0, 48, 314);
