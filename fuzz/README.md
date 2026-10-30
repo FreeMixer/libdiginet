@@ -223,8 +223,8 @@ build/fuzz/fuzz_<harness> fuzz/findings/<harness>-crash-<sha1>
 
 prints the sanitizer report or the aborted property with its stack. Once the bug is fixed, the
 input, or a seed in `fuzz/gen-corpus.c` that reaches the same path, goes into the corpus so
-every later run replays it first. Three are there now: two from bugs `fuzz_transport` found in
-the session, one from a bug in `fuzz_transport` itself:
+every later run replays it first. Four are there now: two from bugs `fuzz_transport` found in
+the session, two from one bug in `fuzz_transport` itself:
 
 - `transport/wake-fails-in-flight`: a `diginet_session_wake()` whose send failed had already
   written its e2 over the frame in flight, so the next retransmission sent that e2, with a
@@ -236,3 +236,6 @@ the session, one from a bug in `fuzz_transport` itself:
   judged both copies before the poll ran, but the tick between them can send a queued command;
   a second copy that was the desk's a0 for that command stopped a session that did nothing
   wrong (`check_inflight_acked`).
+- `transport/c24-poll-twice-e0-e2-owed`: the same bug through the e2 owed to a Control|24's e0:
+  the tick between the copies sent the e2 the first copy owed, the second copy owed another, and
+  the model, which had taken both copies first, owed none when it went (`check_state_settle`).

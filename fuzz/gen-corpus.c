@@ -783,6 +783,23 @@ static void transport_seeds(void)
 	put8(T_POLL); put8(1); put_rec(f, (size_t)n);
 	emit("transport", "poll-twice-ack-new-frame");
 
+	/* a Control|24 online on its a0, a poll whose recv hands its e0 over twice, then its a0 for
+	 * the e2: the tick between the copies sends the e2 the first copy owes, the second copy
+	 * owes another, and that one goes after the a0 */
+	static const uint8_t BCAST[DIGINET_MAC_LEN] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff };
+	struct diginet_header e0 = { .cmd = DIGINET_CMD_ANNOUNCE };
+	uint8_t ann[DIGINET_ANNOUNCE_BODY_LEN];
+	memset(ann, 0, sizeof ann);
+	memcpy(ann + 15, "1.37", 4);
+	memcpy(ann + 24, "CNTRL|24", 8);
+	config_default(F_AUTO);
+	t_announce(0, 13, 0);
+	t_frame(C_ACK | FROM_DESK | TO_HOST | ACK_LAST, 1, 0, 0, NULL, 0);
+	n = diginet_frame_build(f, sizeof f, BCAST, DESK, &e0, ann, sizeof ann, DIGINET_SUM_BODY);
+	put8(T_POLL); put8(1); put_rec(f, (size_t)n);
+	t_frame(C_ACK | FROM_DESK | TO_HOST | ACK_LAST, 2, 0, 0, NULL, 0);
+	emit("transport", "c24-poll-twice-e0-e2-owed");
+
 	/* latest wins: two values for one fader, then sent; one value for an input key, twice */
 	config_default(F_AUTO);
 	online();
