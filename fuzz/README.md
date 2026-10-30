@@ -65,7 +65,7 @@ named seed, requires exit 134 from the record's own check, and puts the file bac
 seed must exit 0 on the unchanged tree. The count of records met is the proof:
 
 ```
-make fuzz-records: all 185 records and 28 patches met, each by its own check on its own seed (121 checks)
+make fuzz-records: all 189 records and 28 patches met, each by its own check on its own seed (121 checks)
 ```
 
 | Harness | Checks | Records | Sabotage patches |
@@ -73,7 +73,7 @@ make fuzz-records: all 185 records and 28 patches met, each by its own check on 
 | frame | 23 | 29 | 4 |
 | decode | 23 | 33 | 3 |
 | codec | 17 | 27 | 6 |
-| transport | 43 | 69 | 9 |
+| transport | 43 | 73 | 9 |
 | mux | 15 | 27 | 6 |
 
 ### What each harness checks
@@ -91,15 +91,16 @@ The header comment of each harness states its properties in full; in short:
 `fuzz_transport` is the session's io: its send reads and records every frame the session sends
 (and fails one when the input asks), its recv hands `diginet_session_poll()` a frame the input
 chose. It runs the session the header describes on its own: the desk it learns, its state and
-the reason of each change, the handshake since the last e2, the desk's latest announce, the frame
-in flight and its retransmissions, the keepalive clock, the back-off after a desk retry, the
+the reason of each change, the handshake since the last e2, the desk's latest announce, the e2 a
+Control|24's e0 in session owes, the frame in flight and its retransmissions, the keepalive clock, the back-off after a desk retry, the
 display pacing, the host's counter and the queue of commands. Before each operation it works out
 what the operation owes; every frame and notice the library then gives is held to the model as it
 happens, and the state, the timers and the queue after it. Its properties: every frame sent is
 the grammar's, to the known desk, padded, with the sum its mode asks and no system family; every
 desk data frame ACKed once with its counter; one frame in flight, retransmitted never early, never
 past `max_retries`, always once due; ONLINE only after the a0 and an e1 naming this host; an e2
-exactly when the host wakes and never into another host's session; a desk that announces but
+exactly when the host wakes, or in the first free frame slot after a Control|24's e0 in session
+with no change of state, and never into another host's session; a desk that announces but
 lets `deaf_wakes` wakes in a row time out reported once, at that wake, with that count, and
 never after an a0, another host's e1 or a timeout with no recent announce; the keepalive on its own
 clock, never early, never skipped; frames within `max_cmds` and `max_body`, their count and

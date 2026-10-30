@@ -829,6 +829,38 @@ static void transport_seeds(void)
 	t_announce(0, 13, 0);
 	emit("transport", "c24-e1-then-e0");
 
+	/* a Control|24's e0 in session owes an e2 in the first free frame slot, its e0 while
+	 * waking none: while a fader frame is in flight the e2 waits, the a0 frees the slot and
+	 * the e2 goes before the queued fader, whose turn comes on the e2's a0; an e2 whose send
+	 * fails leaves the slot to the next tick; and an a0 handed over twice by poll ACKs the
+	 * frame in flight and then the e2 that took its place, which carries the same counter */
+	config(F_AUTO, 5, 100, 60000, 0, 60000, 3000, 0, 48, 314);
+	t_announce(0, 13, 0);
+	t_announce(0, 13, 0);   /* while waking: no e2 owed */
+	t_frame(C_ACK | FROM_DESK | TO_HOST | ACK_LAST, 1, 0, 0, NULL, 0);
+	t_tagged(DIGINET_KEY_FADER, 1, 0, 5, "\x10\x20");
+	t_time(US, 1);
+	t_tagged(DIGINET_KEY_FADER, 2, 0, 5, "\x10\x20");
+	t_announce(0, 13, 0);
+	t_frame(C_ACK | FROM_DESK | TO_HOST | ACK_LAST, 2, 0, 0, NULL, 0);
+	t_frame(C_ACK | FROM_DESK | TO_HOST | ACK_LAST, 3, 0, 0, NULL, 0);
+	t_frame(C_ACK | FROM_DESK | TO_HOST | ACK_LAST, 4, 0, 0, NULL, 0);
+	t_tagged(DIGINET_KEY_FADER, 3, 0, 5, "\x10\x20");
+	put8(T_FAIL);
+	t_announce(0, 13, 0);
+	t_time(US, 1);
+	t_frame(C_ACK | FROM_DESK | TO_HOST | ACK_LAST, 5, 0, 0, NULL, 0);
+	t_tagged(DIGINET_KEY_FADER, 4, 0, 5, "\x10\x20");
+	t_time(US, 1);
+	t_announce(0, 13, 0);
+	{
+		struct diginet_header ha = { .cmd = DIGINET_CMD_ACK, .send_counter = 6, .ack_counter = 4 };
+		int na = diginet_frame_build(f, sizeof f, HOST, DESK, &ha, NULL, 0, DIGINET_SUM_BODY);
+		put8(T_POLL); put8(1); put_rec(f, (size_t)na);
+	}
+	t_time(US, 1);
+	emit("transport", "c24-reassert");
+
 	/* a desk no name selects is held to e1: its a0 alone is not online, the e1 then is */
 	config_default(F_AUTO);
 	t_announce(0, 13, 2);
