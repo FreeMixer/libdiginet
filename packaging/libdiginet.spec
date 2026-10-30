@@ -105,6 +105,13 @@ make CFLAGS="%{optflags}" test
   session (DIGINET_R_ACK_LOST), about 0.6 s with the defaults, instead of
   the session reading online until offline_ms (25 s) of silence. A desk's
   e0 after a reboot still ends it with DIGINET_R_DESK_OFFLINE (#45).
+- A Control|24 is online on the a0 for its e2 again: a freshly booted desk
+  enters its session only after the host has sent in it, and its e0 before
+  its first e1 gets another e2. That e2 opens a new session on the desk,
+  which blanks its scribbles, so the first e1 naming this host is ONLINE
+  again (DIGINET_R_RENEWED) and the host shows everything again. A host
+  restarted while the desk holds its session is online on the a0 for the e2
+  the desk's e1 wakes, that e1 being the proof (#48).
 
 * Fri Oct 30 2026 Pau Aliagas <linuxnow@gmail.com> - 0.1.3-1
 - A Control|24 in session announces only e1 naming its host, as a ProControl
