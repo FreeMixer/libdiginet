@@ -9,8 +9,8 @@
  *
  * The mux's io is the harness: send records each frame and the interface it goes out of,
  * recv hands diginet_mux_poll() a frame and an interface the input chose, if_mac gives
- * interfaces 1 and 2 a MAC of their own and interface 3 none, and the clock is a time the
- * input moves. No socket, no clock, no thread.
+ * interfaces 1 and 2 a MAC of their own and interface 3 none, host_macs lists those two, and
+ * the clock is a time the input moves. No socket, no clock, no thread.
  *
  * Input: [flags] [gone_ms 1 + u16] [offline_ms 1 + u16] [wake_timeout_ms 1 + u16], then up to
  * OPS_MAX operations, each [op] and its arguments. flags bit 0: the harness attaches each desk
@@ -343,6 +343,21 @@ FUZZ_CHECK check_attach_code(int rc, int want)
 		abort();
 }
 
+FUZZ_CHECK check_attach_other_macs(const struct diginet_session *s, int i)
+{
+	uint8_t other[SPEC_MAC];
+	host_mac(D[i].ifx == 1 ? 2 : 1, other);
+	/* An attached desk's session knows this host's other MACs: every MAC host_macs lists but
+	 * its own interface's.
+	 * contract: diginet_mux.h:14-18, :143-145
+	 * mutant: transport/src/diginet_mux.c:91 `if (m->io.host_macs) {` -> `if (0) {`
+	 * input: two-desks
+	 * mutant: transport/src/diginet_mux.c:96 `if (memcmp(all[i], c.host_mac, DIGINET_MAC_LEN))` -> `if (1)`
+	 * input: two-desks */
+	if (s->cfg.n_other_host_macs != 1 || memcmp(s->cfg.other_host_macs[0], other, SPEC_MAC))
+		abort();
+}
+
 FUZZ_CHECK check_attach_session(int i)
 {
 	struct diginet_session *s = diginet_mux_session(&g_m, (unsigned)i);
@@ -356,6 +371,7 @@ FUZZ_CHECK check_attach_session(int i)
 	if (!s || !s->cfg.desk_mac_set || memcmp(s->cfg.desk_mac, D[i].mac, SPEC_MAC) || !host_mac(D[i].ifx, mine) ||
 	    memcmp(s->cfg.host_mac, mine, SPEC_MAC))
 		abort();
+	check_attach_other_macs(s, i);
 }
 
 FUZZ_CHECK check_deadline(void)
@@ -425,6 +441,16 @@ static uint64_t io_now(void *ctx)
 {
 	(void)ctx;
 	return g_now;
+}
+
+static int io_host_macs(void *ctx, uint8_t (*macs)[DIGINET_MAC_LEN], unsigned cap)
+{
+	(void)ctx;
+	unsigned n = 0;
+	for (int ifx = 1; ifx <= 3 && n < cap; ifx++)
+		if (host_mac(ifx, macs[n]))
+			n++;
+	return (int)n;
 }
 
 static void notice(void *ctx, const struct diginet_mux_notice *n)
@@ -605,7 +631,7 @@ static void op_poll(struct fuzz_in *in)
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 {
 	static const uint64_t SCALE[4] = { 1, 1000, 100000, 1000000 };
-	struct diginet_mux_io io = { NULL, io_send, io_recv, io_if_mac, io_now };
+	struct diginet_mux_io io = { NULL, io_send, io_recv, io_if_mac, io_now, io_host_macs };
 	struct diginet_mux_config cfg;
 
 	if (size >= FUZZ_INPUT_MAX)

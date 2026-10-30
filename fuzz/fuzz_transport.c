@@ -14,7 +14,8 @@
  *   flags: bit 0 auto_wake, bit 1 the zero header sum, bit 2 desk_mac_set (the Control|24
  *   below), bit 3 raw commands (else tagged, see op 4), bits 4-5 n and deaf_wakes 3 - n (so
  *   an input that leaves them 0 has the default, 3, and 3 turns the report off), bit 6
- *   answer_e0 off.
+ *   answer_e0 off, bit 7 the other host's MAC (op 2) is this host's other interface, its one
+ *   other_host_macs.
  *   config: max_retries u8 % 8, ack_timeout_ms 1 + u8, keepalive_ms 1 + u16, backoff_ms u8,
  *   offline_ms 1 + u16, wake_timeout_ms 1 + u16, display_gap_us u16, max_cmds 1 + u8 % 255,
  *   max_body 24 + u16 % 1461.
@@ -69,7 +70,8 @@
  *     never later than the next retransmission, nor than a second away.
  *   - state: the session changes state exactly as the header's diagram says, for the reason
  *     it names: ONLINE only after an a0 for its e2 and, from a desk that announces e1, an e1
- *     naming this host since that e2;
+ *     naming this host since that e2; an e1 naming one of this host's other MACs is its own
+ *     session, never foreign, which auto_wake takes from IDLE and which is no online proof;
  *     an e2 exactly when the host wakes and never while the desk's latest announce is a session
  *     with another host; an e3 on close only to a desk not in another host's session; every
  *     announce, desk data frame and foreign session noticed as the header says, a desk's
@@ -290,6 +292,15 @@ static int host_offset(const uint8_t *body)
 	return -1;
 }
 
+/* where this host's other MAC sits in the 15 leading bytes of an e1 body, or -1 */
+static int other_offset(const uint8_t *body)
+{
+	for (int i = 0; i + SPEC_MAC <= SPEC_ANN_UNKNOWN; i++)
+		if (!memcmp(body + i, OTHER, SPEC_MAC))
+			return i;
+	return -1;
+}
+
 /* the desk an announce name selects (docs/protocol.md:47) */
 static const struct spec_desk *desk_named(const uint8_t *body)
 {
@@ -362,6 +373,12 @@ static int m_rx(const uint8_t *frame, size_t n)
 			if (M.state == S_IDLE && g_cfg.auto_wake)
 				m_wake();
 			m_maybe_online();
+		} else if (g_cfg.n_other_host_macs && other_offset(f.body) >= 0) {
+			/* an e1 naming another MAC of this host: its own session on another interface,
+			 * no foreign one, which auto_wake takes again from IDLE (diginet_session.h:24-27) */
+			M.foreign = 0;
+			if (M.state == S_IDLE && g_cfg.auto_wake)
+				m_wake();
 		} else {
 			/* an e1 naming another host ends ours (diginet_session.h:9, :60, :96) */
 			M.foreign = 1;
@@ -783,7 +800,9 @@ FUZZ_CHECK check_state_settle(void)
 	 * mutant: transport/src/diginet_session.c:252 `s->cfg.auto_wake` -> `!s->cfg.auto_wake`
 	 * input: online
 	 * mutant: transport/src/diginet_session.c:250 ` && s->cfg.answer_e0)` -> `)`
-	 * input: c24-e0-unanswered */
+	 * input: c24-e0-unanswered
+	 * mutant: transport/src/diginet_session.c:278 `diginet_session_wake(s, now);   /* ours` -> `(void)now;   /* ours`
+	 * input: retake-other-if */
 	if (GOT.e2 != OW.e2)
 		abort();
 	/* An e3 goes on close, to a known desk not in another host's session, once.
@@ -802,7 +821,11 @@ FUZZ_CHECK check_state_settle(void)
 	/* Every announce of the desk is noticed, and an e1 naming another host as foreign.
 	 * contract: diginet_session.h:91, :96
 	 * mutant: transport/src/diginet_session.c:269 `s->notify(s->notify_ctx, &fn);` -> `(void)fn;`
-	 * input: wake-foreign */
+	 * input: wake-foreign
+	 * mutant: transport/src/diginet_session.c:275 `if (names_other_host_mac(s, &a)) {` -> `if (0) {`
+	 * input: retake-other-if
+	 * mutant: transport/src/diginet_session.c:211 `i < s->cfg.n_other_host_macs;` -> `i < 0;`
+	 * input: retake-other-if */
 	if (GOT.desk != OW.desk || GOT.foreign != OW.foreign)
 		abort();
 	/* A deaf desk owed is reported: every announce counts toward it, at the time it came.
@@ -1281,6 +1304,10 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 	g_cfg.max_cmds = 1u + fuzz_u8(&in) % 255;
 	g_cfg.max_body = SPEC_CMD_MAX + fuzz_u16(&in) % (SPEC_MAX_BODY - SPEC_CMD_MAX + 1);
 	g_cfg.deaf_wakes = 3u - (flags >> 4 & 3u);
+	if (flags >> 7 & 1) {
+		memcpy(g_cfg.other_host_macs[0], OTHER, SPEC_MAC);
+		g_cfg.n_other_host_macs = 1;
+	}
 
 	g_raw = flags >> 3 & 1;
 	g_now = 1000000;

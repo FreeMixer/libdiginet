@@ -88,6 +88,14 @@ int diginet_mux_attach(struct diginet_mux *m, unsigned desk, const struct digine
 		return r;
 	memcpy(c.desk_mac, d->mac, DIGINET_MAC_LEN);
 	c.desk_mac_set = 1;
+	if (m->io.host_macs) {
+		uint8_t all[DIGINET_SESSION_MAX_HOST_MACS + 1][DIGINET_MAC_LEN];
+		int n = m->io.host_macs(m->io.ctx, all, DIGINET_SESSION_MAX_HOST_MACS + 1);
+		c.n_other_host_macs = 0;
+		for (int i = 0; i < n && c.n_other_host_macs < DIGINET_SESSION_MAX_HOST_MACS; i++)
+			if (memcmp(all[i], c.host_mac, DIGINET_MAC_LEN))
+				memcpy(c.other_host_macs[c.n_other_host_macs++], all[i], DIGINET_MAC_LEN);
+	}
 	struct diginet_io io = { .ctx = d, .send = desk_send, .recv = NULL, .now_us = desk_now };
 	r = diginet_session_init(&d->session, &c, &io, desk_notice, d);
 	if (r != DIGINET_OK)

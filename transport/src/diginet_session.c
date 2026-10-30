@@ -62,7 +62,7 @@ int diginet_session_init(struct diginet_session *s, const struct diginet_session
 	if (!s || !cfg || !io || !io->send || !notify)
 		return DIGINET_E_ARG;
 	if (!cfg->max_cmds || cfg->max_body < DIGINET_CMD_MAX_LEN || cfg->max_body > DIGINET_MAX_BODY_LEN ||
-	    cfg->max_cmds > 255)
+	    cfg->max_cmds > 255 || cfg->n_other_host_macs > DIGINET_SESSION_MAX_HOST_MACS)
 		return DIGINET_E_ARG;
 	memset(s, 0, sizeof *s);
 	s->cfg = *cfg;
@@ -205,6 +205,15 @@ static int find_mac(const struct diginet_announce *a, const uint8_t mac[DIGINET_
 	return -1;
 }
 
+/* Whether an e1 names one of this host's other MACs. */
+static int names_other_host_mac(const struct diginet_session *s, const struct diginet_announce *a)
+{
+	for (unsigned i = 0; i < s->cfg.n_other_host_macs; i++)
+		if (find_mac(a, s->cfg.other_host_macs[i]) >= 0)
+			return 1;
+	return 0;
+}
+
 /* Whether the desk always announces its session in e1: a ProControl does; a Control|24 announces
  * it in e0 after a boot and in e1 at other times (docs/protocol.md, "Discovery and handshake"),
  * so its a0 is the online proof. A desk no personality describes is held to e1. */
@@ -261,6 +270,12 @@ static void on_announce(struct diginet_session *s, const struct diginet_frame *f
 		if (s->state == DIGINET_S_IDLE && s->cfg.auto_wake)
 			diginet_session_wake(s, now);   /* our own session, still announced: take it */
 		maybe_online(s);
+		return;
+	}
+	if (names_other_host_mac(s, &a)) {
+		s->foreign = 0;
+		if (s->state == DIGINET_S_IDLE && s->cfg.auto_wake)
+			diginet_session_wake(s, now);   /* ours on another interface of this host: take it here */
 		return;
 	}
 	s->foreign = 1;

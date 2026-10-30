@@ -12,7 +12,11 @@
  *     on another interface while it is present (a bridge and its port both show a frame) is
  *     counted and set aside, never fed to its session.
  *   - The host attaches a present desk (diginet_mux_attach, from the APPEARED notice or
- *     later): a session for that desk alone, its host MAC the MAC of the desk's interface. Each
+ *     later): a session for that desk alone, its host MAC the MAC of the desk's interface and,
+ *     when the io lists them, this host's other MACs its other_host_macs, so a desk that moved
+ *     here from another interface of this host and still announces e1 naming it is re-taken at
+ *     once, not waited out as another host's session; a MAC of no interface of this host stays
+ *     another host's. Each
  *     notice of that session comes back as DIGINET_MUX_N_SESSION. An attached desk's frames go
  *     to its session, the announce that made it appear included when it is attached in that
  *     notice.
@@ -55,10 +59,14 @@ struct diginet_mux_io {
 	int (*if_mac)(void *ctx, int ifindex, uint8_t mac[DIGINET_MAC_LEN]);
 	/* A monotonic clock in microseconds. */
 	uint64_t (*now_us)(void *ctx);
+	/* This host's interface MACs, at most cap of them: their count, or a negative errno. May
+	 * be NULL: a session then knows only the MAC of its desk's interface. */
+	int (*host_macs)(void *ctx, uint8_t (*macs)[DIGINET_MAC_LEN], unsigned cap);
 };
 
 /* The io over an any-interface packet socket: diginet_packet_sendto(), diginet_packet_recvfrom(),
- * diginet_if_mac() and diginet_clock_us(). `store` holds the descriptor and must outlive `io`. */
+ * diginet_if_mac(), diginet_host_macs() and diginet_clock_us(). `store` holds the descriptor and
+ * must outlive `io`. */
 void diginet_mux_io_packet(struct diginet_mux_io *io, struct diginet_fd_io *store, int fd);
 
 struct diginet_mux_config {
@@ -141,7 +149,8 @@ uint64_t diginet_mux_deadline(const struct diginet_mux *m, uint64_t now_us);
 int diginet_mux_poll(struct diginet_mux *m, int max_wait_ms);
 
 /* Give present desk `desk` a session of its own (cfg NULL: the config's session template), its
- * desk MAC that desk's and its host MAC the MAC of the desk's interface. DIGINET_OK;
+ * desk MAC that desk's, its host MAC the MAC of the desk's interface and, when io->host_macs is
+ * set, its other_host_macs every other MAC that lists (none when it fails). DIGINET_OK;
  * DIGINET_E_ARG for a slot with no desk or one already attached; a negative errno when the
  * interface's MAC cannot be read; the session's own code for a config it refuses. Not from
  * inside a notice of that desk's session. */

@@ -4,10 +4,10 @@
  * libdiginet-transport: one host's session with one desk (docs/protocol.md, "Discovery and
  * handshake", "Acks, sequencing, retransmit", "Keepalive").
  *
- *   IDLE --(desk announces e0, or e1 naming this host; host sends e2)--> WAKING
+ *   IDLE --(desk announces e0, or e1 naming this host or another of its MACs; host sends e2)--> WAKING
  *   WAKING --(desk a0 for the e2, and an e1 naming this host from a desk that announces e1)--> ONLINE
  *   ONLINE --(e0 once the session was announced in e1, a host frame lost while it was not,
- *             silence, an e1 naming another host, desk e3)--> IDLE
+ *             silence, an e1 naming no MAC of this host, desk e3)--> IDLE
  *   any --(diginet_session_close: host e3)--> CLOSED
  *
  * While a session lives:
@@ -21,6 +21,10 @@
  *   - frames hold at most max_cmds commands and max_body bytes, and a frame holding display
  *     writes follows the previous one by at least display_gap_us;
  *   - e2 is never sent while the desk announces a session with another host;
+ *   - an e1 naming one of other_host_macs (this host's other interfaces) is this host's own
+ *     session, not another host's: it is no FOREIGN, and auto_wake takes it from IDLE at once,
+ *     as after a desk moved between two interfaces of this host; only an e1 naming host_mac
+ *     is the online proof;
  *   - a desk that lets deaf_wakes wakes in a row time out, each while it still announces (an
  *     announce within offline_ms), is reported deaf (DIGINET_N_DESK_DEAF), once per such run;
  *     an a0 for an e2, an e1 naming another host, or a timeout with no recent announce ends the
@@ -42,6 +46,8 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+#define DIGINET_SESSION_MAX_HOST_MACS 16
 
 enum diginet_session_state {
 	DIGINET_S_IDLE = 0,
@@ -83,6 +89,10 @@ struct diginet_session_config {
 	uint32_t max_cmds;              /* 48 */
 	uint32_t max_body;              /* 314 */
 	uint32_t deaf_wakes;            /* 3; 0: never report a deaf desk */
+	/* This host's MACs other than host_mac, the first n_other_host_macs of them (at most
+	 * DIGINET_SESSION_MAX_HOST_MACS; 0 by default): an e1 naming one is this host's session. */
+	uint8_t other_host_macs[DIGINET_SESSION_MAX_HOST_MACS][DIGINET_MAC_LEN];
+	unsigned n_other_host_macs;
 };
 
 void diginet_session_config_default(struct diginet_session_config *c);
@@ -93,7 +103,7 @@ enum diginet_notice_kind {
 	DIGINET_N_DATA,      /* a desk data frame: body, body_len, counter (never a duplicate) */
 	DIGINET_N_ACKED,     /* the desk ACKed host frame `counter` */
 	DIGINET_N_ACK_LOST,  /* host frame `counter` dropped after max_retries */
-	DIGINET_N_FOREIGN,   /* an e1 that does not name this host */
+	DIGINET_N_FOREIGN,   /* an e1 that names no MAC of this host */
 	DIGINET_N_DESK_DEAF, /* the deaf_wakes-th wake in a row timed out while the desk still
 			      * announced: counter is that count */
 };

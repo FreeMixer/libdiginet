@@ -18,6 +18,10 @@
  *                once (< 1 s), through the mux.
  *  7. ATTACH     its refusals; a desk attached later, and detached.
  *  8. DEADLINE   never later than a session's or the gone rule's.
+ *  9. MOVED      a desk moved to another interface of this host, still announcing e1 naming the
+ *                first one, is re-taken at once (< 1 s) from the new interface's MAC, with no
+ *                FOREIGN; an e1 naming a MAC of no interface of this host is still refused; and
+ *                with an io that lists no host MACs the move is FOREIGN, as it was.
  */
 #include <errno.h>
 
@@ -36,6 +40,8 @@ static const uint8_t DESK[NDESK][6] = { { 0x00, 0xa0, 0x7e, 0x24, 0x00, 0x0a },
 static const uint8_t HOST[NDESK][6] = { { 0x02, 0x00, 0x00, 0x00, 0x0a, 0x01 },
 					{ 0x02, 0x00, 0x00, 0x00, 0x0b, 0x01 } };
 static const int IFX[NDESK] = { 2, 3 };
+static const uint8_t ELSEWHERE[6] = { 0x02, 0x00, 0x00, 0x00, 0x0c, 0x01 };   /* another host */
+static int at[NDESK];                          /* the interface each desk is cabled to; 0: none */
 
 static struct desk_emu E[NDESK];
 static struct diginet_mux M;
@@ -60,7 +66,8 @@ static struct {
 } L[NLOG];
 static int nl;
 
-static int which(int ifindex)
+/* the interface: its slot in IFX and HOST */
+static int iface(int ifindex)
 {
 	for (int i = 0; i < NDESK; i++)
 		if (IFX[i] == ifindex)
@@ -73,23 +80,34 @@ static int io_send(void *ctx, int ifindex, const uint8_t *f, size_t len)
 	(void)ctx;
 	if (ifindex >= 0 && ifindex < 16)
 		sent_on[ifindex]++;
-	int k = which(ifindex);
-	if (k < 0)
+	int i = iface(ifindex);
+	if (i < 0)
 		return -ENXIO;
-	if (len < 12 || memcmp(f + 6, HOST[k], 6))
+	if (len < 12 || memcmp(f + 6, HOST[i], 6))
 		wrong_src++;
-	emu_from_host(&E[k], f, len, now);
+	for (int k = 0; k < NDESK; k++)
+		if (at[k] == ifindex)
+			emu_from_host(&E[k], f, len, now);
 	return 0;
 }
 
 static int io_if_mac(void *ctx, int ifindex, uint8_t mac[6])
 {
 	(void)ctx;
-	int k = which(ifindex);
-	if (k < 0)
+	int i = iface(ifindex);
+	if (i < 0)
 		return -ENODEV;
-	memcpy(mac, HOST[k], 6);
+	memcpy(mac, HOST[i], 6);
 	return 0;
+}
+
+static int io_host_macs(void *ctx, uint8_t (*macs)[6], unsigned cap)
+{
+	(void)ctx;
+	unsigned n = 0;
+	for (int i = 0; i < NDESK && n < cap; i++)
+		memcpy(macs[n++], HOST[i], 6);
+	return (int)n;
 }
 
 static uint64_t io_now(void *ctx) { (void)ctx; return now; }
@@ -122,7 +140,8 @@ static void pump(void)
 	size_t n;
 	for (int k = 0; k < NDESK; k++)
 		while ((n = emu_pop(&E[k], b, sizeof b)))
-			diginet_mux_rx(&M, b, n, IFX[k], now);
+			if (at[k])
+				diginet_mux_rx(&M, b, n, at[k], now);
 	diginet_mux_tick(&M, now);
 }
 
@@ -145,13 +164,16 @@ static void run(uint64_t us, uint64_t step)
 
 static void start(const char *name0, const char *name1)
 {
-	struct diginet_mux_io io = { .ctx = NULL, .send = io_send, .recv = NULL, .if_mac = io_if_mac, .now_us = io_now };
+	struct diginet_mux_io io = { .ctx = NULL, .send = io_send, .recv = NULL, .if_mac = io_if_mac, .now_us = io_now,
+				     .host_macs = io_host_macs };
 	emu_init(&E[0], DESK[0], name0, "1.08");
 	emu_init(&E[1], DESK[1], name1, "1.08");
 	CHK(diginet_mux_init(&M, NULL, &io, on_notice, NULL) == DIGINET_OK);
 	now = 1000 * S;
 	next_ann[0] = now;
 	next_ann[1] = now + 500 * MS;
+	at[0] = IFX[0];
+	at[1] = IFX[1];
 	memset(sent_on, 0, sizeof sent_on);
 	wrong_src = 0;
 	nl = 0;
@@ -447,6 +469,66 @@ static void test_deadline(void)
 	CHK(diginet_mux_deadline(&M, now) >= now);
 }
 
+/* ---- 9 ------------------------------------------------------------------------------- */
+
+/* Desk 0 online on IFX[0], its host stopped (e3; the desk holds its e1 naming HOST[0]), the
+ * desk cabled to IFX[1] instead and desk 1 unplugged, and the host started again: a fresh mux,
+ * with io_host_macs or without. */
+static void moved(int list_host_macs)
+{
+	start("CNTRL|24", "MAINUNIT");
+	E[0].holds_after_e3 = 1;
+	run(1 * S, 1 * MS);
+	int a = diginet_mux_find(&M, DESK[0]);
+	CHK(a >= 0 && sess(a) && sess(a)->state == DIGINET_S_ONLINE && !memcmp(E[0].session_mac, HOST[0], 6));
+	CHK(diginet_mux_detach(&M, (unsigned)a, now) == DIGINET_OK && E[0].stale);
+	at[0] = IFX[1];
+	at[1] = 0;
+	E[1].mute = 1;
+	run(2 * S, 10 * MS);
+	struct diginet_mux_io io = { .ctx = NULL, .send = io_send, .recv = NULL, .if_mac = io_if_mac, .now_us = io_now,
+				     .host_macs = list_host_macs ? io_host_macs : NULL };
+	CHK(diginet_mux_init(&M, NULL, &io, on_notice, NULL) == DIGINET_OK);
+	nl = 0;
+	wrong_src = 0;
+	run(next_ann[0] - now, 1 * MS);
+}
+
+static void test_moved(void)
+{
+	moved(1);
+	int i = find(DIGINET_MUX_N_APPEARED, -1, 0);
+	CHK(i >= 0 && !memcmp(L[i].mac, DESK[0], 6) && L[i].ifindex == IFX[1]);
+	int a = diginet_mux_find(&M, DESK[0]);
+	CHK(a >= 0 && sess(a) && sess(a)->cfg.n_other_host_macs == 1 && !memcmp(sess(a)->cfg.other_host_macs[0], HOST[0], 6));
+	int on = find_session(a, DIGINET_N_STATE, DIGINET_R_ONLINE);
+	CHK(on >= 0 && L[on].at - L[i].at < 1 * S && find_session(a, DIGINET_N_FOREIGN, DIGINET_R_NONE) < 0);
+	CHK(E[0].wakes == 2 && E[0].in_session && !E[0].stale && !memcmp(E[0].session_mac, HOST[1], 6));
+	CHK(wrong_src == 0 && M.desks[a].ifindex == IFX[1] && !memcmp(M.desks[a].host_mac, HOST[1], 6));
+	run(30 * S, 10 * MS);
+	CHK(sess(a)->state == DIGINET_S_ONLINE && sess(a)->stats.ack_lost == 0);
+
+	/* the io lists no host MACs: the e1 naming the first interface is another host's */
+	moved(0);
+	a = diginet_mux_find(&M, DESK[0]);
+	CHK(a >= 0 && sess(a) && sess(a)->cfg.n_other_host_macs == 0);
+	CHK(find_session(a, DIGINET_N_FOREIGN, DIGINET_R_NONE) >= 0 && find_session(a, DIGINET_N_STATE, DIGINET_R_ONLINE) < 0);
+	CHK(E[0].wakes == 1 && E[0].stale);
+
+	/* a desk in session with a host that is none of this host's interfaces: refused, with the
+	 * host MACs listed */
+	start("CNTRL|24", "CNTRL|24");
+	E[0].foreign = 1;
+	memcpy(E[0].session_mac, ELSEWHERE, 6);
+	run(10 * S, 10 * MS);
+	a = diginet_mux_find(&M, DESK[0]);
+	CHK(a >= 0 && sess(a) && sess(a)->cfg.n_other_host_macs == 1 && !memcmp(sess(a)->cfg.other_host_macs[0], HOST[1], 6));
+	CHK(find_session(a, DIGINET_N_FOREIGN, DIGINET_R_NONE) >= 0 && sess(a)->state == DIGINET_S_IDLE);
+	CHK(E[0].wakes == 0 && !memcmp(E[0].session_mac, ELSEWHERE, 6));
+	int b = diginet_mux_find(&M, DESK[1]);
+	CHK(b >= 0 && sess(b) && sess(b)->state == DIGINET_S_ONLINE);
+}
+
 int main(void)
 {
 	test_two_desks();
@@ -457,6 +539,7 @@ int main(void)
 	test_retake();
 	test_attach();
 	test_deadline();
+	test_moved();
 	if (fails) {
 		fprintf(stderr, "test_mux: %d failure(s)\n", fails);
 		return 1;

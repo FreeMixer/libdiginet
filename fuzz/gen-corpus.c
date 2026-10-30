@@ -430,7 +430,7 @@ static void codec_seeds(void)
 
 /* ---- fuzz_transport: a session ---- */
 
-enum { F_AUTO = 1, F_ZERO = 2, F_DESKSET = 4, F_RAW = 8, F_NOANSWER = 64 };
+enum { F_AUTO = 1, F_ZERO = 2, F_DESKSET = 4, F_RAW = 8, F_NOANSWER = 64, F_OTHER_IF = 128 };
 
 /* the config, in the harness's units: each argument is the value the session gets */
 static void config(unsigned flags, unsigned retries, unsigned ack_ms, unsigned ka_ms, unsigned backoff_ms,
@@ -868,6 +868,15 @@ static void transport_seeds(void)
 	config_default(0);
 	t_announce(1, 0, 0);
 	emit("transport", "retake-e1-manual");
+
+	/* a Control|24 moved here from another interface of this host (#40): its e1 naming that
+	 * interface's MAC is no foreign session but ours, woken at once; its a0 brings it online,
+	 * and the next such e1 is no second e2 */
+	config_default(F_AUTO | F_OTHER_IF);
+	t_announce(1, 10, 0);
+	t_frame(C_ACK | FROM_DESK | TO_HOST | ACK_LAST, 1, 0, 0, NULL, 0);
+	t_announce(1, 10, 0);
+	emit("transport", "retake-other-if");
 
 	/* A deaf Control|24 (#35): it announces and lets every e2 time out. Deaf at the third
 	 * timeout, each 100 ms after an announce, within offline_ms (500); not again at the fourth. */

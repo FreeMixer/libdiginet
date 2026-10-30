@@ -201,6 +201,24 @@ int diginet_if_mac(int ifindex, uint8_t mac[DIGINET_MAC_LEN])
 	return r;
 }
 
+int diginet_host_macs(uint8_t (*macs)[DIGINET_MAC_LEN], unsigned cap)
+{
+	static const uint8_t zero[DIGINET_MAC_LEN];
+	if (!macs && cap)
+		return -EINVAL;
+	struct if_nameindex *ifs = if_nameindex();
+	if (!ifs)
+		return -errno;
+	unsigned n = 0;
+	for (struct if_nameindex *i = ifs; i->if_index && n < cap; i++) {
+		uint8_t mac[DIGINET_MAC_LEN];
+		if (diginet_if_mac((int)i->if_index, mac) == 0 && memcmp(mac, zero, DIGINET_MAC_LEN))
+			memcpy(macs[n++], mac, DIGINET_MAC_LEN);
+	}
+	if_freenameindex(ifs);
+	return (int)n;
+}
+
 /* The desk mux's io over an any-interface socket (diginet_mux.h). */
 static int mux_send(void *ctx, int ifindex, const uint8_t *frame, size_t len)
 {
@@ -220,6 +238,12 @@ static int mux_if_mac(void *ctx, int ifindex, uint8_t mac[DIGINET_MAC_LEN])
 	return diginet_if_mac(ifindex, mac);
 }
 
+static int mux_host_macs(void *ctx, uint8_t (*macs)[DIGINET_MAC_LEN], unsigned cap)
+{
+	(void)ctx;
+	return diginet_host_macs(macs, cap);
+}
+
 void diginet_mux_io_packet(struct diginet_mux_io *io, struct diginet_fd_io *store, int fd)
 {
 	store->fd = fd;
@@ -228,6 +252,7 @@ void diginet_mux_io_packet(struct diginet_mux_io *io, struct diginet_fd_io *stor
 	io->recv = mux_recv;
 	io->if_mac = mux_if_mac;
 	io->now_us = fd_now;
+	io->host_macs = mux_host_macs;
 }
 
 /* ---- a packet socket handed over a Unix socket ---- */
