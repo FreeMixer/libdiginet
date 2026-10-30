@@ -13,7 +13,8 @@
  *  B. --checksum zero against a desk that checks the sum: the fader is not ACKed, exit 5;
  *  C. a desk in another host's session: nothing sent, exit 3;
  *  D. --touch-test: 25 %, no echo while the cap is held, the motion after release reported;
- *  E. --keepalive stretched past the desk's timeout: the fall back to e0 is reported;
+ *  E. --keepalive stretched past the desk's timeout: a ProControl's fall back to e0 is reported,
+ *     a Control|24, answered with an e2 on each e0, stays in session;
  *  F. no desk: exit 4; bad usage: exit 2, --any with another wire or --mac, --helper without
  *     --any, a helper that is not there.
  */
@@ -33,6 +34,18 @@ static const char *probe;
 static struct desk_emu E;
 static char out[1 << 16];
 static size_t outlen;
+static unsigned e0_in_session;   /* e0s a Control|24 announced in session, in the last run */
+
+/* Pump the desk, counting each e0 it announces while in session: the probe's session answers
+ * each of those it hears while online with an e2. */
+static void pump(int fd, uint64_t *next_ann)
+{
+	uint64_t was = *next_ann;
+	int in_session = E.in_session;
+	emu_pump_fd(&E, fd, next_ann, 500000);
+	if (*next_ann != was && in_session && E.in_session && !E.announces_session)
+		e0_in_session++;
+}
 
 /* The desk's side of a scenario, called on every loop with the time since the start. */
 typedef void (*hook_fn)(uint64_t t_us);
@@ -68,6 +81,7 @@ static int run_probe(const char *const *args, const char *answers, hook_fn hook)
 	close(in[1]);   /* EOF after the answers */
 	fcntl(po[0], F_SETFL, O_NONBLOCK);
 	outlen = 0;
+	e0_in_session = 0;
 	uint64_t t0 = diginet_clock_us(), next_ann = t0;
 	int status = -1;
 	for (;;) {
@@ -75,10 +89,10 @@ static int run_probe(const char *const *args, const char *answers, hook_fn hook)
 		while ((k = read(po[0], out + outlen, sizeof out - 1 - outlen)) > 0)
 			outlen += (size_t)k;
 		out[outlen] = '\0';
-		emu_pump_fd(&E, sv[0], &next_ann, 500000);
+		pump(sv[0], &next_ann);
 		if (hook)
 			hook(diginet_clock_us() - t0);
-		emu_pump_fd(&E, sv[0], &next_ann, 500000);
+		pump(sv[0], &next_ann);
 		pid_t w = waitpid(pid, &status, WNOHANG);
 		if (w == pid)
 			break;
@@ -175,7 +189,10 @@ static void test_m1(void)
 	static const uint8_t fad[] = { 0xb0, 0x00, 0x40, 0x20, 0x00 };
 	static const uint8_t on[] = { 0x90, 0x08, 0x40 }, off[] = { 0x90, 0x08, 0x00 };
 	static const uint8_t s00[] = { 0xf0, 0x13, 0x01, 0x40, 0x00, 0x00, 'O', 'M', 'X', '1', 0xf7 };
-	CHK(E.wakes == 1 && E.disconnects == 1 && !E.in_session);
+	/* the first e2 woke the desk; every later one answers an e0 it sent in session, and the
+	 * last e0 may cross the probe's e3 */
+	CHK(e0_in_session >= 2 && E.wakes > 1 && E.wakes <= 1 + e0_in_session);
+	CHK(E.disconnects == 1 && !E.in_session);
 	CHK(emu_count_cmd(&E, fad, 5) == 1 && emu_count_cmd(&E, on, 3) == 1 && emu_count_cmd(&E, off, 3) == 1);
 	CHK(emu_count_cmd(&E, s00, sizeof s00) == 1 && emu_count_cmd(&E, SCRIB20, sizeof SCRIB20) == 1);
 	CHK(E.keepalives >= 2);
@@ -257,17 +274,30 @@ static void test_touch(void)
 		fprintf(stderr, "---- probe output ----\n%s----\n", out);
 }
 
+/* A keepalive stretched past the desk's timeout. A ProControl falls back to e0 after the e1
+ * that named this host, and the session reports it. A Control|24 announces e0 in session too,
+ * and the session answers each with an e2, which is host traffic: it never falls out. */
 static void test_keepalive_stretch(void)
 {
 	const char *args[] = { "--fd", "3", "--mac", HOST, "--listen", "4", "--keepalive", "3", "--answer", "0", NULL };
-	emu_fresh();
+	emu_init(&E, DESK_MAC, "MAINUNIT", "1.37");
 	E.host_timeout_us = 1500000;   /* this desk gives up 1.5 s after the last host frame */
 	int f0 = fails;
 	run_probe(args, "", NULL);
-	CHK(has("session lost while online (desk stopped ACKing)"));
-	CHK(has("SUMMARY keepalive 3 s: session lost 1 time(s) while online (last: desk stopped ACKing) (R5)"));
+	CHK(has("session lost while online (desk announced e0)"));
+	CHK(has("SUMMARY keepalive 3 s: session lost 1 time(s) while online (last: desk announced e0) (R5)"));
 	if (fails > f0)
 		fprintf(stderr, "---- probe output ----\n%s----\n", out);
+
+	emu_fresh();
+	E.host_timeout_us = 1500000;
+	f0 = fails;
+	run_probe(args, "", NULL);
+	CHK(has("SUMMARY keepalive 3 s: session lost 0 time(s) while online (R5)"));
+	CHK(e0_in_session >= 2 && E.wakes > 1 && E.wakes <= 1 + e0_in_session && E.keepalives >= 1);
+	if (fails > f0)
+		fprintf(stderr, "---- probe output (%u wakes, %u e0 in session) ----\n%s----\n", E.wakes,
+			e0_in_session, out);
 }
 
 static void test_refusals(void)

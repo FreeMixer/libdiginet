@@ -229,10 +229,12 @@ static void test_two_desks(void)
 	CHK(k >= 0 && find_session(a, DIGINET_N_DATA, DIGINET_R_NONE) < 0);
 	CHK(sess(b)->stats.rx_data == 1 && sess(a)->stats.rx_data == 0);
 
-	/* minutes of both: keepalives each on its own interface, neither session lost */
+	/* minutes of both: keepalives each on its own interface, neither session lost; the
+	 * Control|24 (E[0]) has each of its e0 answered with an e2, the ProControl (E[1]), which
+	 * announces its session in e1, is woken once */
 	run(60 * S, 10 * MS);
 	CHK(sess(a)->state == DIGINET_S_ONLINE && sess(b)->state == DIGINET_S_ONLINE);
-	CHK(E[0].keepalives >= 5 && E[1].keepalives >= 5 && E[0].wakes == 1 && E[1].wakes == 1);
+	CHK(E[0].keepalives >= 5 && E[1].keepalives >= 5 && E[0].wakes > 1 && E[1].wakes == 1);
 	CHK(count(DIGINET_MUX_N_GONE, -1) == 0 && wrong_src == 0);
 	/* frames only to the two interfaces the desks are on */
 	unsigned other = 0;

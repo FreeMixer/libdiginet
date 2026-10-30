@@ -174,12 +174,19 @@ static void probe_any(const char *helper, const char *probe, int desk_a, int des
 	/* the desks first announce once the probe listens: desk A, then desk B */
 	uint64_t t0 = diginet_clock_us(), na = t0 + 1000000, nb = t0 + 1300000;
 	int st = -1;
+	/* Desk A is a Control|24: it announces e0 in session too, and the probe's session answers
+	 * each e0 it hears while online with an e2. Count the e0s desk A sends in session. */
+	unsigned a_e0_in_session = 0;
 	for (;;) {
 		ssize_t k;
 		while ((k = read(po[0], out + outlen, sizeof out - 1 - outlen)) > 0)
 			outlen += (size_t)k;
 		out[outlen] = '\0';
+		uint64_t na_was = na;
+		int a_in_session = EA.in_session;
 		emu_pump_fd(&EA, desk_a, &na, 500000);
+		if (na != na_was && a_in_session && EA.in_session)
+			a_e0_in_session++;
 		emu_pump_fd(&EB, desk_b, &nb, 500000);
 		if (waitpid(pid, &st, WNOHANG) == pid)
 			break;
@@ -205,9 +212,14 @@ static void probe_any(const char *helper, const char *probe, int desk_a, int des
 	CHK(strstr(out, host));
 	CHK(strstr(out, "step 5: fader 1 to mid-travel: sent b0 00 40 20 00, ACKed"));
 	CHK(strstr(out, "SUMMARY any interface: desks appeared on hA hB"));
-	CHK(EA.wakes == 1 && EA.disconnects == 1 && EB.wakes == 0 && EB.nlog == 0);
-	if (fails)
+	/* the first e2 woke desk A; every later one answers an e0 it sent in session, and the
+	 * last e0 may cross the probe's e3. Desk B, never attached, saw nothing. */
+	CHK(a_e0_in_session >= 2 && EA.wakes > 1 && EA.wakes <= 1 + a_e0_in_session);
+	CHK(EA.disconnects == 1 && EB.wakes == 0 && EB.nlog == 0);
+	if (fails) {
+		fprintf(stderr, "desk A: %u wakes, %u e0 in session\n", EA.wakes, a_e0_in_session);
 		fprintf(stderr, "--- diginet-probe --any said:\n%s---\n", out);
+	}
 }
 
 /* The child that keeps the namespace's capabilities: on a byte from the parent it makes hB/dB,
