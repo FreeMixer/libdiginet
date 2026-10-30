@@ -5,7 +5,7 @@
  * handshake", "Acks, sequencing, retransmit", "Keepalive").
  *
  *   IDLE --(desk announces e0, or e1 naming this host or another of its MACs; host sends e2)--> WAKING
- *   WAKING --(desk a0 for the e2, and an e1 naming this host)--> ONLINE
+ *   WAKING --(desk a0 for the e2, and an e1 naming this host from a desk that announces e1)--> ONLINE
  *   ONLINE --(e0: in session a desk announces only e1; a host frame unACKed after max_retries;
  *             silence; an e1 naming no MAC of this host; desk e3)--> IDLE
  *   any --(diginet_session_close: host e3)--> CLOSED
@@ -142,6 +142,7 @@ struct diginet_session {
 	int foreign;              /* the last announce was an e1 for another host */
 	int e1_named_us;          /* since the last e2 */
 	int wake_acked;           /* since the last e2 */
+	int reassert;             /* an e2 is due in the frame slot: a Control|24 online announced e0 */
 	uint64_t wake_sent_us;
 	uint32_t deaf_count;      /* wakes timed out in a row while the desk announced */
 	int announce_seen;

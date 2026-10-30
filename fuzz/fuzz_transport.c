@@ -140,6 +140,7 @@ static struct {
 	uint8_t desk[SPEC_MAC];
 	int state;
 	int e2_acked, e1_us, foreign;     /* the handshake since the last e2; the latest announce */
+	int reassert;                     /* a Control|24's e0 met while online: an e2 is owed */
 	const struct spec_desk *p;        /* the desk the latest announce that named one named */
 	uint64_t last_rx, wake_sent, next_ka, backoff_until, last_display;
 	int display_sent;
@@ -222,6 +223,7 @@ static void m_set(int st, int why)
 static void m_lost(int why)
 {
 	M.fly.on = 0;
+	M.reassert = 0;
 	M.desk_counter_valid = 0;
 	m_set(S_IDLE, why);
 }
@@ -234,6 +236,7 @@ static int m_wake(void)
 	if (M.foreign)
 		return SPEC_E_REFUSED;
 	M.e1_us = M.e2_acked = 0;
+	M.reassert = 0;
 	M.wake_sent = g_now;
 	OW.e2++;
 	int fails = M.fail;
@@ -244,11 +247,19 @@ static int m_wake(void)
 	return SPEC_OK;
 }
 
-/* WAKING --(desk a0 for the e2, and an e1 naming this host)--> ONLINE (diginet_session.h:8);
- * the keepalive clock starts then */
+/* Whether the desk announces e1 as soon as it is online: a ProControl does, a Control|24 only
+ * once the host has sent in the session, a desk no name selects is held to e1
+ * (docs/protocol.md:49; diginet_session.h:8-10) */
+static int m_announces_e1(void)
+{
+	return !M.p || M.p->announces;
+}
+
+/* WAKING --(desk a0 for the e2, and an e1 naming this host from a desk that announces e1)-->
+ * ONLINE (diginet_session.h:8); the keepalive clock starts then */
 static void m_maybe_online(void)
 {
-	if (M.state == S_WAKING && M.e2_acked && M.e1_us) {
+	if (M.state == S_WAKING && M.e2_acked && (M.e1_us || !m_announces_e1())) {
 		M.next_ka = M.last_rx + ms(g_cfg.keepalive_ms);
 		m_set(S_ONLINE, R_ONLINE);
 	}
@@ -343,11 +354,14 @@ static int m_rx(const uint8_t *frame, size_t n)
 		M.heard = 1;
 		M.last_ann = g_now;
 		if (f.cmd == SPEC_CMD_E0) {
-			/* ONLINE --(e0: in session a desk announces only e1)--> IDLE; auto_wake
-			 * sends e2 on an e0 (diginet_session.h:9-10, :77) */
+			/* ONLINE --(e0 once an e1 named this host)--> IDLE; a Control|24 online with no
+			 * e1 yet is owed an e2 in the frame slot, with no state change; auto_wake sends e2
+			 * on an e0 (diginet_session.h:9-10, :77) */
 			M.foreign = 0;
-			if (M.state == S_ONLINE)
+			if (M.state == S_ONLINE && M.e1_us)
 				m_lost(R_DESK_OFFLINE);
+			else if (M.state == S_ONLINE && !m_announces_e1())
+				M.reassert = 1;
 			if (M.state == S_IDLE && g_cfg.auto_wake)
 				m_wake();
 		} else if (off >= 0) {
@@ -544,13 +558,14 @@ FUZZ_CHECK check_inflight_lost(const struct diginet_notice *n)
 
 FUZZ_CHECK check_state_online(void)
 {
-	/* ONLINE only after the desk's a0 for the e2 and an e1 naming this host since that e2.
+	/* ONLINE only after the desk's a0 for the e2 and, from a desk that announces e1, an e1
+	 * naming this host since that e2.
 	 * contract: diginet_session.h:8, :63; docs/protocol.md:49
 	 * mutant: transport/src/diginet_session.c:203 `s->wake_acked && ` -> ``
 	 * input: e1-before-ack
 	 * mutant: transport/src/diginet_session.c:203 `s->wake_acked && s->e1_named_us` -> `s->wake_acked`
 	 * input: online */
-	if (!M.e2_acked || !M.e1_us)
+	if (!M.e2_acked || (!M.e1_us && m_announces_e1()))
 		abort();
 }
 
@@ -886,6 +901,17 @@ FUZZ_CHECK check_inflight_settle(void)
 		abort();
 }
 
+FUZZ_CHECK check_reassert_settle(void)
+{
+	/* An e2 owed to a Control|24's e0 has gone once the slot is free: online, nothing in
+	 * flight, no back-off holding.
+	 * contract: diginet_session.h:145
+	 * mutant: transport/src/diginet_session.c:530 `if (s->reassert) {` -> `if (0) {`
+	 * input: c24-session */
+	if (M.reassert && M.state == S_ONLINE && !M.fly.on && g_now >= M.backoff_until)
+		abort();
+}
+
 FUZZ_CHECK check_keepalive_settle(void)
 {
 	/* A keepalive due while online, with nothing in flight and no back-off holding, has gone.
@@ -964,8 +990,13 @@ static int io_send(void *ctx, const uint8_t *frame, size_t len)
 			check_latest_control(&f);
 			GOT.e2++;
 			g_last_counter = f.send;
-			if (fail)
+			if (M.state == S_ONLINE && M.reassert) {
+				/* the e2 an e0 was owed: in flight even when its send fails */
+				M.reassert = 0;
+				OW.e2++;
+			} else if (fail) {
 				break;   /* the wake fails, and leaves what was in flight */
+			}
 		} else {
 			int ka = f.body_len == 1 && f.body[0] == 0x00 && f.ncmds == 1;
 			unsigned cmds = 0;
@@ -1097,6 +1128,7 @@ static void settle(int ticked)
 	check_state_settle();
 	check_inflight_settle();
 	check_keepalive_settle();
+	check_reassert_settle();
 	if (!g_raw) {
 		check_latest_queue();
 		if (ticked)

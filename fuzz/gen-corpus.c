@@ -807,14 +807,15 @@ static void transport_seeds(void)
 	config_default(F_AUTO | F_RAW);
 	t_rawcmd(DIGINET_KEY_LEDS, 1, 0, SYS, 4);
 	emit("transport", "submit-system-cut-short");
-	/* a Control|24: online on the a0 and its e1 naming us, which it announces in session, its
-	 * keepalive ACKed */
+	/* a Control|24 just booted: online on the a0 alone, its keepalive ACKed; its e0 then is
+	 * owed an e2 in the frame slot, which it ACKs, and it announces e1 naming us */
 	config(F_AUTO, 5, 100, 10, 0, 60000, 3000, 0, 48, 314);
 	t_announce(0, 13, 0);
 	t_frame(C_ACK | FROM_DESK | TO_HOST | ACK_LAST, 1, 0, 0, NULL, 0);
-	t_announce(1, 0, 0);
 	t_time(MSEC, 10);
 	t_frame(C_ACK | FROM_DESK | TO_HOST | ACK_LAST, 2, 0, 0, NULL, 0);
+	t_announce(0, 13, 0);
+	t_frame(C_ACK | FROM_DESK | TO_HOST | ACK_LAST, 3, 0, 0, NULL, 0);
 	t_announce(1, 0, 0);
 	emit("transport", "c24-session");
 

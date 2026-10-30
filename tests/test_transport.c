@@ -220,6 +220,7 @@ static void test_online(void)
 	run(5 * MS, 1 * MS, NULL);
 	CHK(S_->state == DIGINET_S_WAKING && E.wakes == 1);
 	E.in_session = 1;
+	E.shows_session = 1;
 	memcpy(E.session_mac, HOST_MAC, 6);
 	emu_announce(&E, now);
 	pump();
@@ -687,24 +688,30 @@ static unsigned last_wake_counter(void)
 
 static void test_control24(void)
 {
+	/* Just booted: online on the a0 for our e2 at send counter 0 while it still announces e0;
+	 * once it has our data, its next e0 gets another e2 in the frame slot, with no state change,
+	 * and it announces e1 naming us at once, and e1 from then on (a capture on the desk). */
 	desk_name = "CNTRL|24";
 	start();
 	go_online();
-	CHK(S_->personality && S_->personality->desk == DIGINET_DESK_CONTROL24 && S_->personality->announces_session);
-	CHK(find_state(DIGINET_S_ONLINE, DIGINET_R_ONLINE) >= 0 && S_->e1_named_us && E.wakes == 1);
-	CHK(last_wake_counter() == 0 && ndesk >= 1 && desk_offsets[ndesk - 1] == 0);
-
-	/* In session: e1 announces and our keepalives, one session, no state change. */
+	CHK(S_->personality && S_->personality->desk == DIGINET_DESK_CONTROL24 && !S_->personality->announces_session);
+	CHK(find_state(DIGINET_S_ONLINE, DIGINET_R_ONLINE) >= 0 && !S_->e1_named_us && E.wakes == 1);
+	CHK(last_wake_counter() == 0 && !E.shows_session);
+	struct diginet_cmd first = fader(0, 100);   /* the host sends as soon as it is online */
+	CHK(diginet_session_submit(S_, &first) == DIGINET_OK);
 	unsigned ka = E.keepalives;
 	int states = count_kind(DIGINET_N_STATE);
 	run(25 * S, 10 * MS, NULL);
-	CHK(S_->state == DIGINET_S_ONLINE && E.wakes == 1 && E.keepalives >= ka + 2 && E.in_session);
+	CHK(S_->state == DIGINET_S_ONLINE && E.wakes == 2 && last_wake_counter() == 0);
+	CHK(E.shows_session && S_->e1_named_us && E.keepalives >= ka + 2 && E.in_session);
 	CHK(count_kind(DIGINET_N_STATE) == states && count_kind(DIGINET_N_ACK_LOST) == 0);
+	CHK(ndesk >= 1 && desk_offsets[ndesk - 1] == 0);
 
 	/* A reboot: the desk is out of session, still ACKs every host frame (as a Control|24
 	 * does), and announces e0. That e0 ends the session; the wake it gets is an e2 at send
 	 * counter 0, which the desk takes, and the session is online again. */
 	emu_drop_session(&E);
+	unsigned w = E.wakes;
 	int from = nn;
 	run(8 * S, 10 * MS, NULL);
 	int off = -1, wake = -1, on = -1;
@@ -719,7 +726,7 @@ static void test_control24(void)
 			on = k;
 	}
 	CHK(off >= 0 && wake > off && on > wake);
-	CHK(E.wakes == 2 && last_wake_counter() == 0 && E.in_session && S_->state == DIGINET_S_ONLINE);
+	CHK(E.wakes == w + 1 && last_wake_counter() == 0 && E.in_session && S_->state == DIGINET_S_ONLINE);
 	CHK(find_state(DIGINET_S_IDLE, DIGINET_R_ACK_LOST) < 0 && count_kind(DIGINET_N_ACK_LOST) == 0);
 
 	/* A desk that vanishes (unplugged, powered off) stops ACKing and announces nothing: the frame
@@ -862,8 +869,8 @@ static void test_deaf(void)
 	emu_drop_session(&E);
 	E.ack_wake = 0;
 	nn = 0;
-	run(30 * S, 10 * MS, NULL);   /* the session is lost on its e0, then deaf again */
-	CHK(find_state(DIGINET_S_IDLE, DIGINET_R_DESK_OFFLINE) >= 0 && count_kind(DIGINET_N_DESK_DEAF) == 1);
+	run(30 * S, 10 * MS, NULL);   /* its e0 gets an e2 it never ACKs: the session is lost, then deaf again */
+	CHK(find_state(DIGINET_S_IDLE, DIGINET_R_ACK_LOST) >= 0 && count_kind(DIGINET_N_DESK_DEAF) == 1);
 	i = deaf_at(0);
 	CHK(i >= 0 && nlog[i].counter == 3);
 
@@ -944,7 +951,9 @@ static void restart_in_session(const char *name)
 	desk_name = name;
 	start();
 	go_online();
-	CHK(E.in_session && !memcmp(E.session_mac, HOST_MAC, 6));
+	run(25 * S, 10 * MS, NULL);   /* in its session: announcing e1 naming us */
+	CHK(E.in_session && E.shows_session && !memcmp(E.session_mac, HOST_MAC, 6));
+	unsigned w = E.wakes;
 	restart_host();
 	next_announce = now + 1 * S;
 	uint64_t t0 = now;
@@ -952,7 +961,7 @@ static void restart_in_session(const char *name)
 	int i = find_state(DIGINET_S_ONLINE, DIGINET_R_ONLINE);
 	CHK(i >= 0 && nlog_at[i] - (t0 + 1 * S) < 10 * MS);
 	CHK(find_state(DIGINET_S_IDLE, DIGINET_R_WAKE_TIMEOUT) < 0);
-	CHK(E.wakes == 2 && last_wake_counter() == 0 && E.in_session && S_->state == DIGINET_S_ONLINE);
+	CHK(E.wakes == w + 1 && last_wake_counter() == 0 && E.in_session && S_->state == DIGINET_S_ONLINE);
 	desk_name = "MAINUNIT";
 }
 
