@@ -205,7 +205,8 @@ static void probe_any(const char *helper, const char *probe, int desk_a, int des
 	CHK(strstr(out, host));
 	CHK(strstr(out, "step 5: fader 1 to mid-travel: sent b0 00 40 20 00, ACKed"));
 	CHK(strstr(out, "SUMMARY any interface: desks appeared on hA hB"));
-	CHK(EA.wakes == 1 && EA.disconnects == 1 && EB.wakes == 0 && EB.nlog == 0);
+	/* one wake, and one more e2 when the Control|24's next e0 comes after the probe's data */
+	CHK(EA.wakes >= 1 && EA.wakes <= 2 && EA.disconnects == 1 && EB.wakes == 0 && EB.nlog == 0);
 	if (fails)
 		fprintf(stderr, "--- diginet-probe --any said:\n%s---\n", out);
 }
