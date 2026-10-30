@@ -3,7 +3,7 @@
 # libdiginet-transport, the wire under it, from one source and one version; diginet-tools
 # carries diginet-probe and diginet-packet-helper.
 Name:           libdiginet
-Version:        0.1.2
+Version:        0.1.3
 # The sonames' majors. rpm derives this package's provides and every consumer's requires from
 # them. They copy DIGINET_ABI and DIGINET_TRANSPORT_ABI of include/diginet/diginet.h, and
 # tests/conformance-packaging.sh (in make test) refuses a copy that disagrees.
@@ -99,6 +99,15 @@ make CFLAGS="%{optflags}" test
 %{_mandir}/man1/diginet-packet-helper.1*
 
 %changelog
+* Fri Oct 30 2026 Pau Aliagas <linuxnow@gmail.com> - 0.1.3-1
+- A Control|24 that announces e0 while the host holds it online is answered
+  with an e2: out of session the desk still ACKs host frames, so only that
+  e2 brings it back. Every e2 carries send counter 0, the only counter on
+  which the desk takes a session. answer_e0 in the transport config
+  (default on) turns the answer off for a measurement of the desk's own
+  timeout. The fuzz model owes the e2 an e0 asks for, and an e0 that ends a
+  session without an e1 shows in the state (#41).
+
 * Fri Oct 30 2026 Pau Aliagas <linuxnow@gmail.com> - 0.1.2-1
 - A Control|24 is online on the a0 that answers our e2: it announces its
   session in e0 after a boot and in e1 once its front panel is used, so the
