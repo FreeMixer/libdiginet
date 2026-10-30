@@ -35,9 +35,10 @@ struct diginet_personality {
 	uint8_t strips;           /* 24, 8 */
 	uint8_t scribble_chars;   /* 4, 8 */
 	uint8_t counter_addr;     /* 0x19, 0x09 */
-	uint8_t announces_session; /* 1, 1: in session it announces only e1, naming its host, and an
-				    * e0 means out of session (measured on a Control|24 after a power
-				    * cycle; docs/protocol.md, "Discovery and handshake") */
+	uint8_t announces_session; /* 0, 1: 1 announces e1 as soon as it is online; a Control|24 (0)
+				    * announces e1 only once the host, online on its a0, has sent in the
+				    * session, so its a0 is the online proof (docs/protocol.md,
+				    * "Discovery and handshake") */
 };
 
 /* The personality an announce name selects, or NULL for a name no source describes. */

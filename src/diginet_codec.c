@@ -10,7 +10,7 @@
 /* ---- personalities ---------------------------------------------------------------- */
 
 static const struct diginet_personality personalities[] = {
-	{ DIGINET_DESK_CONTROL24,  "CNTRL|24", 0x01, 24, 4, 0x19, 1 },
+	{ DIGINET_DESK_CONTROL24,  "CNTRL|24", 0x01, 24, 4, 0x19, 0 },
 	{ DIGINET_DESK_PROCONTROL, "MAINUNIT", 0x00,  8, 8, 0x09, 1 },
 };
 

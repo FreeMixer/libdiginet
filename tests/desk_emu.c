@@ -42,7 +42,7 @@ void emu_announce(struct desk_emu *e, uint64_t now_us)
 	(void)now_us;
 	uint8_t body[DIGINET_ANNOUNCE_BODY_LEN];
 	memset(body, 0, sizeof body);
-	int session = (e->in_session && e->announces_session) || e->foreign || e->stale;
+	int session = (e->in_session && e->shows_session) || e->foreign || e->stale;
 	if (session)
 		memcpy(body, e->session_mac, 6);   /* where the emulator puts the host (A6) */
 	memcpy(body + 15, e->version, strlen(e->version));
@@ -56,6 +56,8 @@ void emu_drop_session(struct desk_emu *e)
 	e->in_session = 0;
 	e->foreign = 0;
 	e->stale = 0;
+	e->shows_session = 0;
+	e->data_since_e2 = 0;
 }
 
 void emu_from_host(struct desk_emu *e, const uint8_t *buf, size_t len, uint64_t now_us)
@@ -92,14 +94,33 @@ void emu_from_host(struct desk_emu *e, const uint8_t *buf, size_t len, uint64_t 
 			if (r) r->acked = 1;
 			return;
 		}
-		memcpy(e->session_mac, f.src, 6);
-		e->in_session = 1;
-		e->stale = 0;
-		e->last_host_us = now_us;
-		queue(e, f.src, DIGINET_CMD_ACK, e->seq, f.h.send_counter, 0, 0, NULL, 0);
-		if (r) r->acked = 1;
-		if (e->announces_session)
-			emu_announce(e, now_us);   /* e1 naming the host */
+		{
+			/* a desk already in session with this host ACKs the e2 and announces nothing new:
+			 * its next e1 comes at its own period (a Control|24, measured across a host restart) */
+			int held = (e->in_session || e->stale) && !memcmp(e->session_mac, f.src, 6);
+			memcpy(e->session_mac, f.src, 6);
+			e->in_session = 1;
+			e->stale = 0;
+			e->last_host_us = now_us;
+			queue(e, f.src, DIGINET_CMD_ACK, e->seq, f.h.send_counter, 0, 0, NULL, 0);
+			if (r) r->acked = 1;
+			if (!held) {
+				e->shows_session = e->announces_session;
+				e->data_since_e2 = 0;
+				e->blanks++;
+				e->data_since_blank = 0;
+				if (e->shows_session)
+					emu_announce(e, now_us);   /* e1 naming the host */
+			} else if (!e->shows_session && e->data_since_e2) {
+				/* a Control|24 that has the host's data and another e2 enters its
+				 * session: a new session, which blanks its displays (the faders keep
+				 * their place), then e1 naming the host 1 ms later, e1 from then on */
+				e->shows_session = 1;
+				e->blanks++;
+				e->data_since_blank = 0;
+				emu_announce(e, now_us);
+			}
+		}
 		return;
 	case DIGINET_CMD_DISCONNECT:
 		e->disconnects++;
@@ -133,6 +154,9 @@ void emu_from_host(struct desk_emu *e, const uint8_t *buf, size_t len, uint64_t 
 		}
 		queue(e, f.src, DIGINET_CMD_ACK, e->seq, f.h.send_counter, 0, 0, NULL, 0);
 		if (r) r->acked = 1;
+		e->data_since_e2 = 1;
+		if (!diginet_frame_is_keepalive(&f))
+			e->data_since_blank++;
 		return;
 	default:
 		return;

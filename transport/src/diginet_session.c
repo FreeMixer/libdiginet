@@ -51,6 +51,7 @@ const char *diginet_reason_name(enum diginet_reason r)
 	case DIGINET_R_DESK_DISCONNECT: return "desk sent e3";
 	case DIGINET_R_CLOSED:          return "host sent e3";
 	case DIGINET_R_ACK_LOST:        return "desk stopped ACKing";
+	case DIGINET_R_RENEWED:         return "desk opened a new session";
 	}
 	return "?";
 }
@@ -138,6 +139,21 @@ static int send_wake(struct diginet_session *s, uint64_t now_us)
 	return DIGINET_OK;
 }
 
+/* The e2 owed to a Control|24's e0 while online: in flight before it is sent, as a data frame
+ * is, so a failed send is sent again at the ACK timeout. */
+static int send_reassert(struct diginet_session *s, uint64_t now_us)
+{
+	struct diginet_header h = { .send_counter = 0, .cmd = DIGINET_CMD_WAKE };   /* as every e2 */
+	int n = diginet_frame_build(s->inflight_frame, sizeof s->inflight_frame, s->desk_mac, s->cfg.host_mac,
+				    &h, NULL, 0, s->cfg.sum_mode);
+	if (n < 0)
+		return n;
+	s->inflight_len = (size_t)n;
+	inflight_start(s, 0, now_us);
+	s->stats.tx_wakes++;
+	return send_raw(s, s->inflight_frame, s->inflight_len);
+}
+
 int diginet_session_wake(struct diginet_session *s, uint64_t now_us)
 {
 	if (!s)
@@ -150,6 +166,7 @@ int diginet_session_wake(struct diginet_session *s, uint64_t now_us)
 	}
 	s->e1_named_us = 0;
 	s->wake_acked = 0;
+	s->reassert = 0;
 	s->wake_sent_us = now_us;
 	int r = send_wake(s, now_us);
 	if (r < 0)
@@ -174,6 +191,7 @@ int diginet_session_close(struct diginet_session *s, uint64_t now_us)
 static void session_lost(struct diginet_session *s, enum diginet_reason why)
 {
 	s->inflight = 0;
+	s->reassert = 0;
 	s->desk_counter_valid = 0;
 	set_state(s, DIGINET_S_IDLE, why);
 }
@@ -196,11 +214,18 @@ static int names_other_host_mac(const struct diginet_session *s, const struct di
 	return 0;
 }
 
-/* Online on the a0 for the e2 and an e1 naming this host: in session every desk announces e1
- * (docs/protocol.md, "Discovery and handshake"). */
+/* Whether the desk announces e1 as soon as it is online: a ProControl does; a Control|24
+ * announces e1 only once the host, online on its a0, has sent in the session (docs/protocol.md,
+ * "Discovery and handshake"), so its a0 is the online proof. A desk no personality describes is
+ * held to e1. */
+static int announces_e1(const struct diginet_session *s)
+{
+	return !s->personality || s->personality->announces_session;
+}
+
 static void maybe_online(struct diginet_session *s)
 {
-	if (s->state == DIGINET_S_WAKING && s->wake_acked && s->e1_named_us) {
+	if (s->state == DIGINET_S_WAKING && s->wake_acked && (s->e1_named_us || !announces_e1(s))) {
 		s->next_keepalive_us = s->last_rx_us + ms(s->cfg.keepalive_ms);
 		set_state(s, DIGINET_S_ONLINE, DIGINET_R_ONLINE);
 	}
@@ -226,10 +251,13 @@ static void on_announce(struct diginet_session *s, const struct diginet_frame *f
 
 	if (f->h.cmd == DIGINET_CMD_ANNOUNCE) {
 		s->foreign = 0;
-		/* In session a desk announces only e1 naming its host: an e0 is a desk out of
-		 * session, after a reboot, and the session is lost, then woken again. */
-		if (s->state == DIGINET_S_ONLINE)
+		/* Once an e1 has named this host, an e0 is a desk out of session, after a reboot: the
+		 * session is lost, then woken again. A Control|24 online on its a0 announces e0 until
+		 * it has the host's data and another e2, which its e0 is answered with. */
+		if (s->state == DIGINET_S_ONLINE && s->e1_named_us)
 			session_lost(s, DIGINET_R_DESK_OFFLINE);
+		else if (s->state == DIGINET_S_ONLINE && !announces_e1(s))
+			s->reassert = 1;
 		if (s->state == DIGINET_S_IDLE && s->cfg.auto_wake)
 			diginet_session_wake(s, now);
 		return;
@@ -238,9 +266,19 @@ static void on_announce(struct diginet_session *s, const struct diginet_frame *f
 	/* e1 */
 	if (off >= 0) {
 		s->foreign = 0;
-		s->e1_named_us = 1;
 		if (s->state == DIGINET_S_IDLE && s->cfg.auto_wake)
 			diginet_session_wake(s, now);   /* our own session, still announced: take it */
+		/* A Control|24 online on its a0 announces its first e1 once the e2 its e0 was owed has
+		 * opened a new session on the desk, which blanks it: the host shows everything again. */
+		int renewed = s->state == DIGINET_S_ONLINE && !s->e1_named_us;
+		/* After the wake, which starts a fresh handshake: this e1 already names us, and a desk
+		 * still in the session announces no new one after the e2. */
+		s->e1_named_us = 1;
+		if (renewed) {
+			struct diginet_notice rn = { .kind = DIGINET_N_STATE, .state = DIGINET_S_ONLINE,
+						     .old_state = DIGINET_S_ONLINE, .reason = DIGINET_R_RENEWED };
+			s->notify(s->notify_ctx, &rn);
+		}
 		maybe_online(s);
 		return;
 	}
@@ -498,6 +536,11 @@ int diginet_session_tick(struct diginet_session *s, uint64_t now)
 	if (s->state != DIGINET_S_ONLINE || s->inflight || now < s->backoff_until_us)
 		return DIGINET_OK;
 
+	if (s->reassert) {
+		s->reassert = 0;
+		return send_reassert(s, now);
+	}
+
 	/* The keepalive runs on its own clock: nothing else moves next_keepalive_us. */
 	if (now >= s->next_keepalive_us) {
 		uint8_t ka = 0x00;
@@ -540,6 +583,9 @@ uint64_t diginet_session_deadline(const struct diginet_session *s, uint64_t now)
 		if (!s->inflight)
 			d = min64(d, s->next_keepalive_us > s->backoff_until_us ? s->next_keepalive_us
 									      : s->backoff_until_us);
+		/* an e2 owed to an e0 goes as soon as the slot is free */
+		if (!s->inflight && s->reassert)
+			d = min64(d, s->backoff_until_us > now ? s->backoff_until_us : now);
 	}
 	if (s->inflight)
 		return min64(d, s->inflight_sent_us + ms(s->cfg.ack_timeout_ms));

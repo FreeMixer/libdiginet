@@ -254,9 +254,11 @@ static void test_two_desks(void)
 	/* minutes of both: keepalives each on its own interface, neither session lost */
 	run(60 * S, 10 * MS);
 	CHK(sess(a)->state == DIGINET_S_ONLINE && sess(b)->state == DIGINET_S_ONLINE);
-	/* both desks announce e1 naming their host: one wake each, and the sessions never change
-	 * state */
-	CHK(E[0].keepalives >= 5 && E[1].keepalives >= 5 && E[0].wakes == 1 && E[1].wakes == 1);
+	/* the ProControl announces e1 naming us from its e2: one wake; the Control|24 announces e0
+	 * until it has our data, then its e0 gets one more e2 and it announces e1: two. The sessions
+	 * never change state */
+	CHK(E[0].keepalives >= 5 && E[1].keepalives >= 5 && E[0].wakes == 2 && E[1].wakes == 1);
+	CHK(E[0].shows_session && E[1].shows_session);
 	CHK(E[0].in_session && E[1].in_session && sess(a)->stats.ack_lost == 0 && sess(b)->stats.ack_lost == 0);
 	CHK(count(DIGINET_MUX_N_GONE, -1) == 0 && wrong_src == 0);
 	/* frames only to the two interfaces the desks are on */

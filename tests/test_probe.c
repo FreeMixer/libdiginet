@@ -175,7 +175,8 @@ static void test_m1(void)
 	static const uint8_t fad[] = { 0xb0, 0x00, 0x40, 0x20, 0x00 };
 	static const uint8_t on[] = { 0x90, 0x08, 0x40 }, off[] = { 0x90, 0x08, 0x00 };
 	static const uint8_t s00[] = { 0xf0, 0x13, 0x01, 0x40, 0x00, 0x00, 'O', 'M', 'X', '1', 0xf7 };
-	CHK(E.wakes == 1 && E.disconnects == 1 && !E.in_session);
+	/* one wake, and one more e2 when the Control|24's next e0 comes after the probe's data */
+	CHK(E.wakes >= 1 && E.wakes <= 2 && E.disconnects == 1 && !E.in_session);
 	CHK(emu_count_cmd(&E, fad, 5) == 1 && emu_count_cmd(&E, on, 3) == 1 && emu_count_cmd(&E, off, 3) == 1);
 	CHK(emu_count_cmd(&E, s00, sizeof s00) == 1 && emu_count_cmd(&E, SCRIB20, sizeof SCRIB20) == 1);
 	CHK(E.keepalives >= 2);
