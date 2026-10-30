@@ -24,6 +24,9 @@
  *                once; an e1 naming another host's closed session never does.
  * 12. DEAF       a desk that keeps announcing but lets three wakes in a row time out is
  *                reported deaf, once; an a0, another host's e1 or a silent desk ends the run.
+ * 13. RESTART    a host restarted while the desk holds the session (no e3): the desk's next e1
+ *                naming us wakes it, and the a0 for that e2 brings it online at once, though
+ *                the desk announces no new e1 after it and its next comes after wake_timeout.
  */
 #include <errno.h>
 
@@ -931,6 +934,34 @@ static void test_deaf(void)
 	desk_name = "MAINUNIT";
 }
 
+/* ---- 13 ----------------------------------------------------------------------------- */
+
+/* The console restarted while the desk held its session (a capture on the desk): the desk kept
+ * announcing e1 naming this host every ~6.5 s, ACKed our e2 at send counter 0, and announced
+ * nothing new after it; the e1 that woke the session is the proof it is ours. */
+static void restart_in_session(const char *name)
+{
+	desk_name = name;
+	start();
+	go_online();
+	CHK(E.in_session && !memcmp(E.session_mac, HOST_MAC, 6));
+	restart_host();
+	next_announce = now + 1 * S;
+	uint64_t t0 = now;
+	run(2 * announce_period, 1 * MS, NULL);
+	int i = find_state(DIGINET_S_ONLINE, DIGINET_R_ONLINE);
+	CHK(i >= 0 && nlog_at[i] - (t0 + 1 * S) < 10 * MS);
+	CHK(find_state(DIGINET_S_IDLE, DIGINET_R_WAKE_TIMEOUT) < 0);
+	CHK(E.wakes == 2 && last_wake_counter() == 0 && E.in_session && S_->state == DIGINET_S_ONLINE);
+	desk_name = "MAINUNIT";
+}
+
+static void test_restart(void)
+{
+	restart_in_session("CNTRL|24");
+	restart_in_session("MAINUNIT");
+}
+
 int main(void)
 {
 	C24 = diginet_personality_of(DIGINET_DESK_CONTROL24);
@@ -946,6 +977,7 @@ int main(void)
 	test_control24();
 	test_retake();
 	test_deaf();
+	test_restart();
 	if (fails) {
 		fprintf(stderr, "test_transport: %d failure(s)\n", fails);
 		return 1;

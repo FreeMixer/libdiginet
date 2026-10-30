@@ -868,6 +868,13 @@ static void transport_seeds(void)
 	t_announce(1, 0, 0);
 	emit("transport", "retake-e1");
 
+	/* the host restarted while the desk holds the session: the e1 naming us wakes it, and the
+	 * a0 for that e2 brings it online with no new e1 after it */
+	config_default(F_AUTO);
+	t_announce(1, 0, 0);
+	t_frame(C_ACK | FROM_DESK | TO_HOST | ACK_LAST, 1, 0, 0, NULL, 0);
+	emit("transport", "restart-in-session");
+
 	/* without auto_wake the e1 naming us wakes nothing */
 	config_default(0);
 	t_announce(1, 0, 0);

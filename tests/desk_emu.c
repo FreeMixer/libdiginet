@@ -92,14 +92,19 @@ void emu_from_host(struct desk_emu *e, const uint8_t *buf, size_t len, uint64_t 
 			if (r) r->acked = 1;
 			return;
 		}
-		memcpy(e->session_mac, f.src, 6);
-		e->in_session = 1;
-		e->stale = 0;
-		e->last_host_us = now_us;
-		queue(e, f.src, DIGINET_CMD_ACK, e->seq, f.h.send_counter, 0, 0, NULL, 0);
-		if (r) r->acked = 1;
-		if (e->announces_session)
-			emu_announce(e, now_us);   /* e1 naming the host */
+		{
+			/* a desk already in session with this host ACKs the e2 and announces nothing new:
+			 * its next e1 comes at its own period (a Control|24, measured across a host restart) */
+			int held = (e->in_session || e->stale) && !memcmp(e->session_mac, f.src, 6);
+			memcpy(e->session_mac, f.src, 6);
+			e->in_session = 1;
+			e->stale = 0;
+			e->last_host_us = now_us;
+			queue(e, f.src, DIGINET_CMD_ACK, e->seq, f.h.send_counter, 0, 0, NULL, 0);
+			if (r) r->acked = 1;
+			if (e->announces_session && !held)
+				emu_announce(e, now_us);   /* e1 naming the host */
+		}
 		return;
 	case DIGINET_CMD_DISCONNECT:
 		e->disconnects++;

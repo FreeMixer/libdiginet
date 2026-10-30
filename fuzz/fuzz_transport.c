@@ -354,9 +354,11 @@ static int m_rx(const uint8_t *frame, size_t n)
 			/* an e1 naming this host: our own session, which auto_wake takes again from
 			 * IDLE, as after a restart the desk still announces it (diginet_session.h:7, :77) */
 			M.foreign = 0;
-			M.e1_us = 1;
 			if (M.state == S_IDLE && g_cfg.auto_wake)
 				m_wake();
+			/* after the wake: this e1 names us, and a desk still in session announces no
+			 * new one after the e2 */
+			M.e1_us = 1;
 			m_maybe_online();
 		} else if (g_cfg.n_other_host_macs && other_offset(f.body) >= 0) {
 			/* an e1 naming another MAC of this host: its own session on another interface,
