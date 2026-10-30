@@ -1,4 +1,4 @@
-Breaks the check of fuzz/fuzz_codec.c:319 (the fader cuts its strip to a byte before the range check, so strip 256 moves fader 0).
+Breaks the check of fuzz/fuzz_codec.c:321 (the fader cuts its strip to a byte before the range check, so strip 256 moves fader 0).
 Caught by the seed input "fader-strip-256" of fuzz_codec.
 
 diff --git a/src/diginet_codec.c b/src/diginet_codec.c

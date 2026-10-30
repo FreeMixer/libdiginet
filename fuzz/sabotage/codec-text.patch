@@ -1,4 +1,4 @@
-Breaks the check of fuzz/fuzz_codec.c:489 (the counter text takes a dot on the rightmost digit, which has no bit).
+Breaks the check of fuzz/fuzz_codec.c:491 (the counter text takes a dot on the rightmost digit, which has no bit).
 Caught by the seed input "counter-text-last-dot" of fuzz_codec.
 
 diff --git a/src/diginet_codec.c b/src/diginet_codec.c

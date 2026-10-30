@@ -1,4 +1,4 @@
-Breaks the check of fuzz/fuzz_codec.c:319 (the fader takes the strip one past the last).
+Breaks the check of fuzz/fuzz_codec.c:321 (the fader takes the strip one past the last).
 Caught by the seed input "fader-past-last-strip" of fuzz_codec.
 
 diff --git a/src/diginet_codec.c b/src/diginet_codec.c
