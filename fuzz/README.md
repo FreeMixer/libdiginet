@@ -65,7 +65,7 @@ named seed, requires exit 134 from the record's own check, and puts the file bac
 seed must exit 0 on the unchanged tree. The count of records met is the proof:
 
 ```
-make fuzz-records: all 195 records and 28 patches met, each by its own check on its own seed (123 checks)
+make fuzz-records: all 205 records and 29 patches met, each by its own check on its own seed (125 checks)
 ```
 
 | Harness | Checks | Records | Sabotage patches |
@@ -73,7 +73,7 @@ make fuzz-records: all 195 records and 28 patches met, each by its own check on 
 | frame | 23 | 29 | 4 |
 | decode | 23 | 33 | 3 |
 | codec | 17 | 29 | 6 |
-| transport | 44 | 75 | 9 |
+| transport | 46 | 85 | 10 |
 | mux | 16 | 29 | 6 |
 
 ### What each harness checks
@@ -85,7 +85,7 @@ The header comment of each harness states its properties in full; in short:
 | `fuzz_frame` | `diginet_frame_parse`, `diginet_frame_build`, `diginet_frame_is_keepalive`, `diginet_mac_is_digidesign`, `diginet_announce_parse`, `diginet_sum16` | parse: each refusal with its code, every field where the grammar puts it; round-trip: the builder makes the grammar's frame of those fields and refuses a body past 1484 bytes, the system family and a buffer one byte short; announce: only an e0 or e1 of 33 bytes, `unknown`, version and name at 0, 15 and 24 |
 | `fuzz_decode` | `diginet_msg_next`, `diginet_decoder_next`, `diginet_body_check` | cursor: each step of the grammar, message or refusal, with its place, bytes, cursor and running status; events: each step as the control `docs/protocol.md` makes of it, every field; refusal: a body refused exactly when it holds F0 13 xx 70 |
 | `fuzz_codec` | every encoder of `src/diginet_codec.c`, the personalities, `diginet_scribble_text`, `diginet_seg7`, `diginet_counter_text`, the meter and ring helpers | personality, refusal of function 0x70, range (success exactly in range, the code otherwise, the command untouched on failure), bytes (the control's message, its key, the display flag), text |
-| `fuzz_transport` | `diginet_session_rx`, `_tick`, `_submit`, `_wake`, `_close`, `_poll`, `_deadline` | sent, ack, inflight, state, keepalive, latest, refusal (below) |
+| `fuzz_transport` | `diginet_session_rx`, `_tick`, `_submit`, `_wake`, `_close`, `_poll`, `_deadline` | sent, ack, inflight, state, keepalive, latest, refusal, poll (below) |
 | `fuzz_mux` | `diginet_mux_rx`, `_tick`, `_attach`, `_detach`, `_poll`, `_deadline`, `_find`, `_session` | appear, route, send, gone, attach, deadline (below) |
 
 `fuzz_transport` is the session's io: its send reads and records every frame the session sends
@@ -93,9 +93,10 @@ The header comment of each harness states its properties in full; in short:
 chose. It runs the session the header describes on its own: the desk it learns, its state and
 the reason of each change, the handshake since the last e2, the desk's latest announce, the frame
 in flight and its retransmissions, the keepalive clock, the back-off after a desk retry, the
-display pacing, the host's counter and the queue of commands. Before each operation it works out
-what the operation owes; every frame and notice the library then gives is held to the model as it
-happens, and the state, the timers and the queue after it. Its properties: every frame sent is
+display pacing, the host's counter and the queue of commands. Before each operation, and in a
+poll before each frame its recv hands over, it works out what the operation owes; every frame
+and notice the library then gives is held to the model as it happens, and the state, the timers
+and the queue after it. Its properties: every frame sent is
 the grammar's, to the known desk, padded, with the sum its mode asks and no system family; every
 desk data frame ACKed once with its counter; one frame in flight, retransmitted never early, never
 past `max_retries`, always once due; ONLINE only after the a0 and an e1 naming this host; an e2
@@ -104,8 +105,9 @@ lets `deaf_wakes` wakes in a row time out reported once, at that wake, with that
 never after an a0, another host's e1 or a timeout with no recent announce; the keepalive on its own
 clock, never early, never skipped; frames within `max_cmds` and `max_body`, their count and
 counter right, display writes paced; the queue exactly the pending commands, latest in place,
-and a command that may go gone after each tick; a command holding F0 13 xx 70 refused. Each
-timer has a seed that reaches it exactly, so a bound moved by one shows.
+and a command that may go gone after each tick; a command holding F0 13 xx 70 refused; a poll
+returning the error of a recv that failed, else 0. Each timer has a seed that reaches it
+exactly, so a bound moved by one shows.
 
 `fuzz_mux` is the desk mux's io: its send reads every frame a desk's session sends and the
 interface it goes out of, its recv hands `diginet_mux_poll()` a frame and an interface the input
@@ -221,7 +223,8 @@ build/fuzz/fuzz_<harness> fuzz/findings/<harness>-crash-<sha1>
 
 prints the sanitizer report or the aborted property with its stack. Once the bug is fixed, the
 input, or a seed in `fuzz/gen-corpus.c` that reaches the same path, goes into the corpus so
-every later run replays it first. Two are there now, each from a bug `fuzz_transport` found:
+every later run replays it first. Four are there now: two from bugs `fuzz_transport` found in
+the session, two from one bug in `fuzz_transport` itself:
 
 - `transport/wake-fails-in-flight`: a `diginet_session_wake()` whose send failed had already
   written its e2 over the frame in flight, so the next retransmission sent that e2, with a
@@ -229,3 +232,10 @@ every later run replays it first. Two are there now, each from a bug `fuzz_trans
 - `transport/split-system`: two commands each whole alone, the first ending `F0 13` and the
   second starting `A0 70`, made F0 13 A0 70 side by side; the builder refused the frame and
   every command taken for it was dropped without a notice (`check_latest_sent`).
+- `transport/poll-twice-ack-new-frame`: when poll's recv handed a frame over twice, the model
+  judged both copies before the poll ran, but the tick between them can send a queued command;
+  a second copy that was the desk's a0 for that command stopped a session that did nothing
+  wrong (`check_inflight_acked`).
+- `transport/c24-poll-twice-e0-e2-owed`: the same bug through the e2 owed to a Control|24's e0:
+  the tick between the copies sent the e2 the first copy owed, the second copy owed another, and
+  the model, which had taken both copies first, owed none when it went (`check_state_settle`).

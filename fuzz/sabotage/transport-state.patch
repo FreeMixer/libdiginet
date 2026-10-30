@@ -1,4 +1,4 @@
-Breaks the check of fuzz/fuzz_transport.c:593 (a foreign session refuses a wake only while online).
+Breaks the check of fuzz/fuzz_transport.c:638 (a foreign session refuses a wake only while online).
 Caught by the seed input "wake-foreign" of fuzz_transport.
 
 diff --git a/transport/src/diginet_session.c b/transport/src/diginet_session.c

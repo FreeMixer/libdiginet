@@ -51,11 +51,11 @@
  * learns, its state and the reason of each change, the handshake since the last e2, the
  * desk's latest announce, the frame in flight and its retransmissions, the keepalive clock,
  * the back-off after a desk retry, the display pacing, the host's counter and the queue of
- * commands. Before each operation it works out what the operation owes (the state changes,
- * the frames and notices); then the library runs, every frame it sends and every notice it
- * gives is held to the model as it happens, and the state, the timers and the queue are held
- * to it after. A frame the session sends is read with the harness's own reader. No expected
- * value comes from the library; the failure of a send is the harness's own choice.
+ * commands. Before each operation (in a poll, each frame) it works out what the operation owes
+ * (the state changes, the frames and notices); then the library runs, every frame it sends and
+ * every notice it gives is held to the model as it happens, and the state, the timers and the
+ * queue are held to it after. A frame the session sends is read with the harness's own reader.
+ * No expected value comes from the library; the failure of a send is the harness's own choice.
  *
  * Properties, each an abort() in a check_ function:
  *   - sent: every frame the session sends is a frame of the grammar from this host to the
@@ -67,7 +67,9 @@
  *     retransmission is that frame again, retry 1, 2, ... never past max_retries, never before
  *     ack_timeout, and always once it is due; DIGINET_N_ACKED comes for the ACK of the frame in
  *     flight and only for it, DIGINET_N_ACK_LOST after exactly max_retries; the deadline is
- *     never later than the next retransmission, nor than a second away.
+ *     never later than the next retransmission, nor than a second away, and with tagged
+ *     commands it is the first of the wake timeout, the silence, the keepalive held past a
+ *     back-off, an e2 owed to a Control|24's e0, the retransmission and a command that may go.
  *   - state: the session changes state exactly as the header's diagram says, for the reason
  *     it names: ONLINE only after an a0 for its e2 and, from a desk that announces e1, an e1
  *     naming this host since that e2; an e1 naming one of this host's other MACs is its own
@@ -89,6 +91,8 @@
  *     when 512 commands are pending.
  *   - refusal: a command that holds F0 13 xx 70 is refused by diginet_session_submit() and
  *     not queued, and no other command is refused as such.
+ *   - poll: diginet_session_poll() returns the negative errno of a recv that failed, and 0
+ *     when none did.
  */
 #include <errno.h>
 
@@ -291,6 +295,47 @@ static void m_tick(void)
 		}
 	} else if (M.state == S_ONLINE && g_now - M.last_rx >= ms(g_cfg.offline_ms))
 		m_lost(R_SILENCE);
+}
+
+/* when the session next has work, the latest a tick may come: the first of the wake timeout,
+ * the silence, the retransmission of the frame in flight and, while nothing is in flight, the
+ * keepalive (held past a back-off), an e2 owed to a Control|24's e0 once a back-off ends, and
+ * a command that may go once a back-off ends and, when every pending command is a display
+ * write, the display gap has passed; a second away at most, and now once that time has passed
+ * (diginet_session.h:185, :9-10, :16-19, :22-23, :66, :68, :148) */
+static uint64_t m_deadline(void)
+{
+	uint64_t d = g_now + 1000000, t;
+	if (M.state == S_IDLE || M.state == S_CLOSED)
+		return d;
+	if (M.state == S_WAKING && M.wake_sent + ms(g_cfg.wake_timeout_ms) < d)
+		d = M.wake_sent + ms(g_cfg.wake_timeout_ms);
+	if (M.state == S_ONLINE && M.last_rx + ms(g_cfg.offline_ms) < d)
+		d = M.last_rx + ms(g_cfg.offline_ms);
+	if (M.state == S_ONLINE && !M.fly.on) {
+		t = M.next_ka > M.backoff_until ? M.next_ka : M.backoff_until;
+		if (t < d)
+			d = t;
+		if (M.reassert) {
+			t = M.backoff_until > g_now ? M.backoff_until : g_now;
+			if (t < d)
+				d = t;
+		}
+	}
+	if (M.fly.on) {
+		if (M.fly.sent + ms(g_cfg.ack_timeout_ms) < d)
+			d = M.fly.sent + ms(g_cfg.ack_timeout_ms);
+	} else if (M.state == S_ONLINE && g_nq) {
+		int display_only = 1;
+		t = M.backoff_until > g_now ? M.backoff_until : g_now;
+		for (unsigned i = 0; i < g_nq && display_only; i++)
+			display_only = g_cmd[g_q[i]].display;
+		if (display_only && M.display_sent && M.last_display + g_cfg.display_gap_us > t)
+			t = M.last_display + g_cfg.display_gap_us;
+		if (t < d)
+			d = t;
+	}
+	return d < g_now ? g_now : d;
 }
 
 /* where this host's MAC sits in the 15 leading bytes of an e1 body, or -1
@@ -915,6 +960,35 @@ FUZZ_CHECK check_inflight_settle(void)
 		abort();
 }
 
+FUZZ_CHECK check_inflight_deadline(void)
+{
+	/* With tagged commands the deadline is exactly when the session next has work
+	 * (m_deadline()): a later one leaves that work waiting, a sooner one spins a poll loop. In
+	 * raw mode the model keeps no queue and no keepalive clock. It runs after every other check
+	 * of the operation, so a bug those checks see is named by them first.
+	 * contract: diginet_session.h:185, :9-10, :16-19, :22-23, :66, :68, :148
+	 * mutant: transport/src/diginet_session.c:592 `s->state == DIGINET_S_ONLINE && s->queued` -> `0`
+	 * input: coalesce
+	 * mutant: transport/src/diginet_session.c:577 `s->state == DIGINET_S_WAKING` -> `0`
+	 * input: wake-timeout-exact
+	 * mutant: transport/src/diginet_session.c:580 `s->last_rx_us + ms(s->cfg.offline_ms)` -> `s->last_rx_us + 2 * ms(s->cfg.offline_ms)`
+	 * input: silence-exact
+	 * mutant: transport/src/diginet_session.c:583 `if (!s->inflight)` -> `if (0)`
+	 * input: keepalive-clock
+	 * mutant: transport/src/diginet_session.c:584 `s->next_keepalive_us > s->backoff_until_us` -> `s->next_keepalive_us < s->backoff_until_us`
+	 * input: backoff-exact
+	 * mutant: transport/src/diginet_session.c:593 `s->backoff_until_us > now ? s->backoff_until_us : now` -> `now`
+	 * input: backoff-exact
+	 * mutant: transport/src/diginet_session.c:597 `display_only && s->display_sent` -> `0`
+	 * input: display-gap-exact
+	 * mutant: transport/src/diginet_session.c:547 `+= ms(s->cfg.keepalive_ms);` -> `+= 2 * ms(s->cfg.keepalive_ms);`
+	 * input: keepalive-clock
+	 * mutant: transport/src/diginet_session.c:587 `if (!s->inflight && s->reassert)` -> `if (0)`
+	 * input: c24-e0-during-backoff */
+	if (diginet_session_deadline(&g_s, g_now) != m_deadline())
+		abort();
+}
+
 FUZZ_CHECK check_reassert_settle(void)
 {
 	/* An e2 owed to a Control|24's e0 has gone once the slot is free: online, nothing in
@@ -934,7 +1008,7 @@ FUZZ_CHECK check_keepalive_settle(void)
 	 * In raw mode a command can be the byte 00 a keepalive is, so the clock is held in tagged
 	 * mode only.
 	 * contract: diginet_session.h:18-19
-	 * mutant: transport/src/diginet_session.c:547 `+= ms(s->cfg.keepalive_ms);` -> `+= 2 * ms(s->cfg.keepalive_ms);`
+	 * mutant: transport/src/diginet_session.c:545 `now >= s->next_keepalive_us` -> `now > s->next_keepalive_us`
 	 * input: keepalive-clock */
 	if (!g_raw && M.state == S_ONLINE && !M.fly.on && g_now >= M.backoff_until && g_now >= M.next_ka)
 		abort();
@@ -973,6 +1047,16 @@ FUZZ_CHECK check_latest_queue(void)
 	 * mutant: transport/src/diginet_session.c:415 `if (s->queue[i].key == c->key) {` -> `if (0) {`
 	 * input: coalesce */
 	if (!same)
+		abort();
+}
+
+FUZZ_CHECK check_poll_result(int rc, int fails)
+{
+	/* A poll returns the negative errno of a recv that failed, and 0 when none did.
+	 * contract: diginet_session.h:188-190
+	 * mutant: transport/src/diginet_session.c:617 `return r;` -> `return 0;`
+	 * input: wake-poll */
+	if (rc != (fails ? -EIO : 0))
 		abort();
 }
 
@@ -1078,6 +1162,15 @@ static int io_recv(void *ctx, uint8_t *buf, size_t cap, int timeout_ms)
 		return 0;
 	g_rx_times--;
 	size_t n = g_rx_len < cap ? g_rx_len : cap;
+	/* The model takes each frame just before the session reads it, so a second copy is held
+	 * to what the session sent after the first; an empty frame leaves the poll's tick alone.
+	 * The tick between two frames needs no model step: it comes at the time of the tick
+	 * m_rx() ends with or, after a frame the session does not read, with nothing changed
+	 * since the last tick, and every step of time ends in one. */
+	if (n)
+		m_rx(g_rx, n);
+	else
+		m_tick();
 	memcpy(buf, g_rx, n);
 	return (int)n;
 }
@@ -1136,8 +1229,8 @@ static void notice(void *ctx, const struct diginet_notice *n)
 /* ---------------------------------------------------------------- the operations */
 
 /* `ticked`: the operation ended with a tick (time passing, a frame the session read, a poll
- * whose recv did not fail), so what is due has gone; the queue's contents are the model's in
- * tagged mode only */
+ * whose recv did not fail), so what is due has gone; the queue's contents, and with them the
+ * deadline, are the model's in tagged mode only */
 static void settle(int ticked)
 {
 	check_ack_settle();
@@ -1149,6 +1242,7 @@ static void settle(int ticked)
 		check_latest_queue();
 		if (ticked)
 			check_latest_drain();
+		check_inflight_deadline();
 	}
 }
 
@@ -1168,22 +1262,17 @@ static void receive(const uint8_t *p, size_t n, int by_poll, unsigned poll_flags
 		int twice = poll_flags & 1, fails = poll_flags >> 1 & 1;
 		spec_read_frame(frame, got, &f);
 		g_rx_send = f.send;
-		/* poll: recv, then the frame, then a tick, then whatever else is waiting */
-		if (!fails) {
-			if (got)
-				m_rx(frame, got);
-			m_tick();
-			if (twice && got)
-				m_rx(frame, got);
-		}
+		/* poll: recv, then the frame, then a tick, then whatever else is waiting; io_recv()
+		 * runs the model of each */
 		ticked = !fails;
 		g_rx = frame;
 		g_rx_len = got;
 		g_rx_times = twice ? 2 : 1;
 		g_rx_fail = fails;
-		diginet_session_poll(&g_s, 0);
+		int rc = diginet_session_poll(&g_s, 0);
 		g_rx = NULL;
 		g_rx_fail = 0;
+		check_poll_result(rc, fails);
 	} else {
 		ticked = m_rx(frame, n);
 		diginet_session_rx(&g_s, frame, n, g_now);
