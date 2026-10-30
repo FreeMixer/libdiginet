@@ -1,3 +1,13 @@
+libdiginet (0.1.4) unstable; urgency=medium
+
+  * A desk that vanishes, unplugged or powered off, sends no e0 and stops
+    ACKing: a host frame it leaves unACKed through every retry ends the
+    session (DIGINET_R_ACK_LOST), about 0.6 s with the defaults, instead of
+    the session reading online until offline_ms (25 s) of silence. A desk's
+    e0 after a reboot still ends it with DIGINET_R_DESK_OFFLINE (#45).
+
+ -- Pau Aliagas <linuxnow@gmail.com>  Fri, 30 Oct 2026 16:07:29 +0100
+
 libdiginet (0.1.3) unstable; urgency=medium
 
   * A Control|24 in session announces only e1 naming its host, as a ProControl

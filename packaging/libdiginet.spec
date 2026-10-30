@@ -3,7 +3,7 @@
 # libdiginet-transport, the wire under it, from one source and one version; diginet-tools
 # carries diginet-probe and diginet-packet-helper.
 Name:           libdiginet
-Version:        0.1.3
+Version:        0.1.4
 # The sonames' majors. rpm derives this package's provides and every consumer's requires from
 # them. They copy DIGINET_ABI and DIGINET_TRANSPORT_ABI of include/diginet/diginet.h, and
 # tests/conformance-packaging.sh (in make test) refuses a copy that disagrees.
@@ -99,6 +99,13 @@ make CFLAGS="%{optflags}" test
 %{_mandir}/man1/diginet-packet-helper.1*
 
 %changelog
+* Fri Oct 30 2026 Pau Aliagas <linuxnow@gmail.com> - 0.1.4-1
+- A desk that vanishes, unplugged or powered off, sends no e0 and stops
+  ACKing: a host frame it leaves unACKed through every retry ends the
+  session (DIGINET_R_ACK_LOST), about 0.6 s with the defaults, instead of
+  the session reading online until offline_ms (25 s) of silence. A desk's
+  e0 after a reboot still ends it with DIGINET_R_DESK_OFFLINE (#45).
+
 * Fri Oct 30 2026 Pau Aliagas <linuxnow@gmail.com> - 0.1.3-1
 - A Control|24 in session announces only e1 naming its host, as a ProControl
   does, and an e0 means it is out of session: it is online on the a0 for an
