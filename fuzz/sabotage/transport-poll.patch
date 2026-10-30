@@ -1,0 +1,16 @@
+Breaks the check of fuzz/fuzz_transport.c:942 (a poll whose recv failed returns 0).
+Caught by the seed input "wake-poll" of fuzz_transport.
+
+diff --git a/transport/src/diginet_session.c b/transport/src/diginet_session.c
+index f03b03e..2442036 100644
+--- a/transport/src/diginet_session.c
++++ b/transport/src/diginet_session.c
+@@ -568,7 +568,7 @@ int diginet_session_poll(struct diginet_session *s, int max_wait_ms)
+ 		wait = max_wait_ms;
+ 	int r = s->io.recv(s->io.ctx, buf, sizeof buf, wait);
+ 	if (r < 0)
+-		return r;
++		return 0;
+ 	now = s->io.now_us(s->io.ctx);
+ 	if (r > 0)
+ 		diginet_session_rx(s, buf, (size_t)r, now);

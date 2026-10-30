@@ -89,6 +89,8 @@
  *     when 512 commands are pending.
  *   - refusal: a command that holds F0 13 xx 70 is refused by diginet_session_submit() and
  *     not queued, and no other command is refused as such.
+ *   - poll: diginet_session_poll() returns the negative errno of a recv that failed, and 0
+ *     when none did.
  */
 #include <errno.h>
 
@@ -930,6 +932,16 @@ FUZZ_CHECK check_latest_queue(void)
 		abort();
 }
 
+FUZZ_CHECK check_poll_result(int rc, int fails)
+{
+	/* A poll returns the negative errno of a recv that failed, and 0 when none did.
+	 * contract: diginet_session.h:184-186
+	 * mutant: transport/src/diginet_session.c:571 `return r;` -> `return 0;`
+	 * input: wake-poll */
+	if (rc != (fails ? -EIO : 0))
+		abort();
+}
+
 /* ---------------------------------------------------------------- the io and the notices */
 
 static int io_send(void *ctx, const uint8_t *frame, size_t len)
@@ -1132,9 +1144,10 @@ static void receive(const uint8_t *p, size_t n, int by_poll, unsigned poll_flags
 		g_rx_len = got;
 		g_rx_times = twice ? 2 : 1;
 		g_rx_fail = fails;
-		diginet_session_poll(&g_s, 0);
+		int rc = diginet_session_poll(&g_s, 0);
 		g_rx = NULL;
 		g_rx_fail = 0;
+		check_poll_result(rc, fails);
 	} else {
 		ticked = m_rx(frame, n);
 		diginet_session_rx(&g_s, frame, n, g_now);

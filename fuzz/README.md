@@ -65,7 +65,7 @@ named seed, requires exit 134 from the record's own check, and puts the file bac
 seed must exit 0 on the unchanged tree. The count of records met is the proof:
 
 ```
-make fuzz-records: all 190 records and 28 patches met, each by its own check on its own seed (122 checks)
+make fuzz-records: all 191 records and 29 patches met, each by its own check on its own seed (123 checks)
 ```
 
 | Harness | Checks | Records | Sabotage patches |
@@ -73,7 +73,7 @@ make fuzz-records: all 190 records and 28 patches met, each by its own check on 
 | frame | 23 | 29 | 4 |
 | decode | 23 | 33 | 3 |
 | codec | 17 | 27 | 6 |
-| transport | 43 | 72 | 9 |
+| transport | 44 | 73 | 10 |
 | mux | 16 | 29 | 6 |
 
 ### What each harness checks
@@ -85,7 +85,7 @@ The header comment of each harness states its properties in full; in short:
 | `fuzz_frame` | `diginet_frame_parse`, `diginet_frame_build`, `diginet_frame_is_keepalive`, `diginet_mac_is_digidesign`, `diginet_announce_parse`, `diginet_sum16` | parse: each refusal with its code, every field where the grammar puts it; round-trip: the builder makes the grammar's frame of those fields and refuses a body past 1484 bytes, the system family and a buffer one byte short; announce: only an e0 or e1 of 33 bytes, `unknown`, version and name at 0, 15 and 24 |
 | `fuzz_decode` | `diginet_msg_next`, `diginet_decoder_next`, `diginet_body_check` | cursor: each step of the grammar, message or refusal, with its place, bytes, cursor and running status; events: each step as the control `docs/protocol.md` makes of it, every field; refusal: a body refused exactly when it holds F0 13 xx 70 |
 | `fuzz_codec` | every encoder of `src/diginet_codec.c`, the personalities, `diginet_scribble_text`, `diginet_seg7`, `diginet_counter_text`, the meter and ring helpers | personality, refusal of function 0x70, range (success exactly in range, the code otherwise, the command untouched on failure), bytes (the control's message, its key, the display flag), text |
-| `fuzz_transport` | `diginet_session_rx`, `_tick`, `_submit`, `_wake`, `_close`, `_poll`, `_deadline` | sent, ack, inflight, state, keepalive, latest, refusal (below) |
+| `fuzz_transport` | `diginet_session_rx`, `_tick`, `_submit`, `_wake`, `_close`, `_poll`, `_deadline` | sent, ack, inflight, state, keepalive, latest, refusal, poll (below) |
 | `fuzz_mux` | `diginet_mux_rx`, `_tick`, `_attach`, `_detach`, `_poll`, `_deadline`, `_find`, `_session` | appear, route, send, gone, attach, deadline (below) |
 
 `fuzz_transport` is the session's io: its send reads and records every frame the session sends
@@ -105,8 +105,9 @@ lets `deaf_wakes` wakes in a row time out reported once, at that wake, with that
 never after an a0, another host's e1 or a timeout with no recent announce; the keepalive on its own
 clock, never early, never skipped; frames within `max_cmds` and `max_body`, their count and
 counter right, display writes paced; the queue exactly the pending commands, latest in place,
-and a command that may go gone after each tick; a command holding F0 13 xx 70 refused. Each
-timer has a seed that reaches it exactly, so a bound moved by one shows.
+and a command that may go gone after each tick; a command holding F0 13 xx 70 refused; a poll
+returning the error of a recv that failed, else 0. Each timer has a seed that reaches it
+exactly, so a bound moved by one shows.
 
 `fuzz_mux` is the desk mux's io: its send reads every frame a desk's session sends and the
 interface it goes out of, its recv hands `diginet_mux_poll()` a frame and an interface the input
