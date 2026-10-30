@@ -801,7 +801,7 @@ FUZZ_CHECK check_state_settle(void)
 	 * input: online
 	 * mutant: transport/src/diginet_session.c:259 ` && s->cfg.answer_e0)` -> `)`
 	 * input: c24-e0-unanswered
-	 * mutant: transport/src/diginet_session.c:278 `diginet_session_wake(s, now);   /* ours` -> `(void)now;   /* ours`
+	 * mutant: transport/src/diginet_session.c:278 `diginet_session_wake(s, now);` -> `(void)now;`
 	 * input: retake-other-if
 	 * mutant: transport/src/diginet_session.c:275 `if (names_other_host_mac(s, &a)) {` -> `if (0) {`
 	 * input: retake-other-if
