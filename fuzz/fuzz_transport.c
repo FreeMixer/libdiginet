@@ -788,9 +788,7 @@ FUZZ_CHECK check_state_settle(void)
 	 * mutant: transport/src/diginet_session.c:231 `if (s->state == DIGINET_S_ONLINE)` -> `if (0)`
 	 * input: c24-reboot
 	 * mutant: transport/src/diginet_session.c:231 `DIGINET_S_ONLINE)` -> `DIGINET_S_ONLINE && s->e1_named_us)`
-	 * input: e0-after-failed-wake
-	 * mutant: transport/src/diginet_session.c:492 `session_lost(s, DIGINET_R_ACK_LOST);` -> `(void)0;`
-	 * input: c24-ack-lost */
+	 * input: e0-after-failed-wake */
 	if (GOT.e2 != OW.e2)
 		abort();
 	/* An e3 goes on close, to a known desk not in another host's session, once.
@@ -838,7 +836,9 @@ FUZZ_CHECK check_state_settle(void)
 	 * mutant: transport/src/diginet_session.c:460 `>= ms(s->cfg.wake_timeout_ms)` -> `> ms(s->cfg.wake_timeout_ms)`
 	 * input: wake-timeout-exact
 	 * mutant: transport/src/diginet_session.c:472 `>= ms(s->cfg.offline_ms)` -> `> ms(s->cfg.offline_ms)`
-	 * input: silence-exact */
+	 * input: silence-exact
+	 * mutant: transport/src/diginet_session.c:492 `session_lost(s, DIGINET_R_ACK_LOST);` -> `(void)0;`
+	 * input: c24-ack-lost */
 	if (!same)
 		abort();
 	/* Each change names its reason.
