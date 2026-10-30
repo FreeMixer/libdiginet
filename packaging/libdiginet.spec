@@ -3,7 +3,7 @@
 # libdiginet-transport, the wire under it, from one source and one version; diginet-tools
 # carries diginet-probe and diginet-packet-helper.
 Name:           libdiginet
-Version:        0.1.4
+Version:        0.1.5
 # The sonames' majors. rpm derives this package's provides and every consumer's requires from
 # them. They copy DIGINET_ABI and DIGINET_TRANSPORT_ABI of include/diginet/diginet.h, and
 # tests/conformance-packaging.sh (in make test) refuses a copy that disagrees.
@@ -99,6 +99,17 @@ make CFLAGS="%{optflags}" test
 %{_mandir}/man1/diginet-packet-helper.1*
 
 %changelog
+* Sat Oct 31 2026 Pau Aliagas <linuxnow@gmail.com> - 0.1.5-1
+- diginet_sysex_encode() refuses a len within 4 of SIZE_MAX with
+  DIGINET_E_SPACE. Such a len wrapped the space check, and the encoder read
+  past the payload. Only a caller passing such a len reaches it: every
+  encoder in the library passes at most 10 bytes and no decode or transport
+  path calls it, so no desk frame can (#53).
+- docs/protocol.md says what the Control|24 captures show: desk frames that
+  batch moves of one fader, the desk's counter step, the v of the version in
+  the announce, the desk's own 0x70 messages, and stale bytes at or above
+  0x80 in the padding (#52).
+
 * Fri Oct 30 2026 Pau Aliagas <linuxnow@gmail.com> - 0.1.4-1
 - A desk that vanishes, unplugged or powered off, sends no e0 and stops
   ACKing: a host frame it leaves unACKed through every retry ends the

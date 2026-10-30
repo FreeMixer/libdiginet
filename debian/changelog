@@ -1,3 +1,17 @@
+libdiginet (0.1.5) unstable; urgency=medium
+
+  * diginet_sysex_encode() refuses a len within 4 of SIZE_MAX with
+    DIGINET_E_SPACE. Such a len wrapped the space check, and the encoder read
+    past the payload. Only a caller passing such a len reaches it: every
+    encoder in the library passes at most 10 bytes and no decode or transport
+    path calls it, so no desk frame can (#53).
+  * docs/protocol.md says what the Control|24 captures show: desk frames that
+    batch moves of one fader, the desk's counter step, the v of the version in
+    the announce, the desk's own 0x70 messages, and stale bytes at or above
+    0x80 in the padding (#52).
+
+ -- Pau Aliagas <linuxnow@gmail.com>  Sat, 31 Oct 2026 00:27:44 +0100
+
 libdiginet (0.1.4) unstable; urgency=medium
 
   * A desk that vanishes, unplugged or powered off, sends no e0 and stops
