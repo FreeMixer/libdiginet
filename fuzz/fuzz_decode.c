@@ -153,7 +153,7 @@ FUZZ_CHECK check_events_step(const uint8_t *b, const struct owed *o, int rd, con
 {
 	const struct spec_msg *m = &o->m;
 	/* The decoder gives what the cursor gives: a message, a refusal with its code, or the end.
-	 * contract: diginet_codec.h:219; diginet.h:158-160
+	 * contract: diginet_codec.h:220; diginet.h:158-160
 	 * mutant: src/diginet_decode.c:114 `return r;` -> `return 0;`
 	 * input: status-for-data
 	 * mutant: src/diginet_decode.c:140 `d->c = peek;` -> `d->c = d->c;`
@@ -163,7 +163,7 @@ FUZZ_CHECK check_events_step(const uint8_t *b, const struct owed *o, int rd, con
 	if (rd != 1)
 		return;
 	/* The event carries the message it came from.
-	 * contract: diginet_codec.h:208
+	 * contract: diginet_codec.h:209
 	 * mutant: src/diginet_decode.c:116 `ev->msg = m;` -> `ev->msg.offset = m.offset;`
 	 * input: button_mute
 	 * mutant: src/diginet_decode.c:116 `ev->msg = m;` -> `ev->msg = m, ev->msg.running = 0;`
@@ -197,7 +197,7 @@ FUZZ_CHECK check_events_fields(const uint8_t *b, const struct owed *o, const str
 		    (e->kind == SPEC_EV_SECTION_BUTTON ? ev->zone != e->zone : ev->strip != e->strip)))
 		abort();
 	/* A fader: its strip, the position MSB << 3 | LSB >> 4, and whether the LSB came.
-	 * contract: docs/protocol.md:75-76; diginet_codec.h:181
+	 * contract: docs/protocol.md:75-76; diginet_codec.h:182
 	 * mutant: src/diginet_decode.c:139 `(lsb.d2 >> 4) & 7` -> `(lsb.d2 >> 3) & 7`
 	 * input: running_status
 	 * mutant: src/diginet_decode.c:134 `(uint16_t)(m.d2 << 3)` -> `(uint16_t)(m.d2 << 2)`
@@ -266,7 +266,7 @@ FUZZ_CHECK check_refusal(const uint8_t *b, size_t len)
 {
 	int want = spec_system_at(b, len) >= 0 ? SPEC_E_REFUSED : SPEC_OK;
 	/* A body is refused exactly when it holds F0 13 xx 70, whole or cut short.
-	 * contract: docs/protocol.md:140-144; diginet_codec.h:175-176
+	 * contract: docs/protocol.md:140-144; diginet_codec.h:176-177
 	 * mutant: src/diginet_codec.c:59 `i + 3 < len` -> `i + 4 < len`
 	 * input: system-cut-short
 	 * mutant: src/diginet_codec.c:55 `m.sysex[0] == DIGINET_SYSEX_MAKER &&` -> ``

@@ -201,7 +201,7 @@ static struct {
 static int coalescable(uint32_t key)
 {
 	/* a key of a host-side address coalesces; desk-side input and the keepalive never do.
-	 * contract: diginet_codec.h:60-61 */
+	 * contract: diginet_codec.h:61-62 */
 	uint8_t k = (uint8_t)(key >> 16);
 	return k != 0 && k != SPEC_KEY_INPUT && k != SPEC_KEY_KEEPALIVE;
 }
@@ -801,11 +801,7 @@ FUZZ_CHECK check_state_settle(void)
 	 * mutant: transport/src/diginet_session.c:276 `if (names_other_host_mac(s, &a)) {` -> `if (0) {`
 	 * input: retake-other-if
 	 * mutant: transport/src/diginet_session.c:210 `i < s->cfg.n_other_host_macs;` -> `i < 0;`
-	 * input: retake-other-if
-	 * mutant: transport/src/diginet_session.c:256 `if (s->state == DIGINET_S_ONLINE && s->e1_named_us)` -> `if (0)`
-	 * input: c24-reboot
-	 * mutant: transport/src/diginet_session.c:258 `else if (s->state == DIGINET_S_ONLINE && !announces_e1(s))` -> `else if (0)`
-	 * input: c24-session */
+	 * input: retake-other-if */
 	if (GOT.e2 != OW.e2)
 		abort();
 	/* An e3 goes on close, to a known desk not in another host's session, once.
@@ -854,6 +850,8 @@ FUZZ_CHECK check_state_settle(void)
 	 * input: wake-timeout-exact
 	 * mutant: transport/src/diginet_session.c:501 `>= ms(s->cfg.offline_ms)` -> `> ms(s->cfg.offline_ms)`
 	 * input: silence-exact
+	 * mutant: transport/src/diginet_session.c:256 `if (s->state == DIGINET_S_ONLINE && s->e1_named_us)` -> `if (0)`
+	 * input: c24-reboot
 	 * mutant: transport/src/diginet_session.c:272 `s->e1_named_us = 1;` -> `(void)0;`
 	 * input: restart-in-session
 	 * mutant: transport/src/diginet_session.c:521 `session_lost(s, DIGINET_R_ACK_LOST);` -> `(void)0;`
@@ -907,6 +905,8 @@ FUZZ_CHECK check_reassert_settle(void)
 	 * flight, no back-off holding.
 	 * contract: diginet_session.h:145
 	 * mutant: transport/src/diginet_session.c:530 `if (s->reassert) {` -> `if (0) {`
+	 * input: c24-session
+	 * mutant: transport/src/diginet_session.c:258 `else if (s->state == DIGINET_S_ONLINE && !announces_e1(s))` -> `else if (0)`
 	 * input: c24-session */
 	if (M.reassert && M.state == S_ONLINE && !M.fly.on && g_now >= M.backoff_until)
 		abort();
