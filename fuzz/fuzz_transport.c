@@ -343,10 +343,10 @@ static int m_rx(const uint8_t *frame, size_t n)
 		M.heard = 1;
 		M.last_ann = g_now;
 		if (f.cmd == SPEC_CMD_E0) {
-			/* ONLINE --(e0 once an e1 named this host in the session)--> IDLE; auto_wake
+			/* ONLINE --(e0: in session a desk announces only e1)--> IDLE; auto_wake
 			 * sends e2 on an e0 (diginet_session.h:9-10, :77) */
 			M.foreign = 0;
-			if (M.state == S_ONLINE && M.e1_us)
+			if (M.state == S_ONLINE)
 				m_lost(R_DESK_OFFLINE);
 			if (M.state == S_IDLE && g_cfg.auto_wake)
 				m_wake();
@@ -786,7 +786,9 @@ FUZZ_CHECK check_state_settle(void)
 	 * mutant: transport/src/diginet_session.c:193 `i < s->cfg.n_other_host_macs;` -> `i < 0;`
 	 * input: retake-other-if
 	 * mutant: transport/src/diginet_session.c:231 `if (s->state == DIGINET_S_ONLINE)` -> `if (0)`
-	 * input: c24-reboot */
+	 * input: c24-reboot
+	 * mutant: transport/src/diginet_session.c:231 `DIGINET_S_ONLINE)` -> `DIGINET_S_ONLINE && s->e1_named_us)`
+	 * input: e0-after-failed-wake */
 	if (GOT.e2 != OW.e2)
 		abort();
 	/* An e3 goes on close, to a known desk not in another host's session, once.

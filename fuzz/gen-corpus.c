@@ -589,6 +589,15 @@ static void transport_seeds(void)
 	t_time(DECI, 5);
 	emit("transport", "wake-fails-in-flight");
 
+	/* online, then a wake whose send fails, which leaves the session online with no e1 since:
+	 * the desk's e0 still ends it, and auto_wake wakes it again */
+	config_default(F_AUTO);
+	online();
+	put8(T_FAIL);
+	put8(T_WAKE);
+	t_announce(0, 13, 1);
+	emit("transport", "e0-after-failed-wake");
+
 	/* a frame of commands that goes, then no ACK for ack_timeout: the same frame again */
 	config(F_AUTO, 3, 10, 60000, 0, 60000, 3000, 0, 48, 314);
 	online();
