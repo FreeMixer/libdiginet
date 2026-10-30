@@ -99,8 +99,8 @@ static const uint8_t SPEC_BCAST[SPEC_MAC] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff
 
 /* The two desks. contract: docs/protocol.md:47 (the announce names), :146 (the device byte),
  * :73 (24 faders), :123 (the ProControl's displays 00..07, 8 characters each), :118 (the
- * Control|24's 4 characters), :135 and :138 (the counter at 0x19, at 0x09), :49 (a ProControl
- * always announces e1 in session, a Control|24 e0 or e1) */
+ * Control|24's 4 characters), :135 and :138 (the counter at 0x19, at 0x09), :49 (both desks
+ * announce e1 in session) */
 struct spec_desk {
 	const char *name;
 	uint8_t device;
@@ -109,7 +109,7 @@ struct spec_desk {
 	uint8_t counter;
 	uint8_t announces;
 };
-static const struct spec_desk SPEC_C24 = { "CNTRL|24", 0x01, 24, 4, 0x19, 0 };
+static const struct spec_desk SPEC_C24 = { "CNTRL|24", 0x01, 24, 4, 0x19, 1 };
 static const struct spec_desk SPEC_PC = { "MAINUNIT", 0x00, 8, 8, 0x09, 1 };
 
 /* ---- the library's API, as its header promises it ---------------------------------------- */

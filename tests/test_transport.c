@@ -18,7 +18,8 @@
  *  7. FOREIGN    never e2 while the desk announces another host's session.
  *  8. SUM        the header sum per the switch, checked by a desk that insists on it.
  *  9. CLOSE      e3 on close.
- * 10. CONTROL|24 online on the a0 alone; its e0 is no loss.
+ * 10. CONTROL|24 online on the a0 and an e1 naming us; a reboot's e0 ends the session and the
+ *                e2 at send counter 0 that follows brings it back online.
  * 11. RETAKE     a restarted host takes its own session back on the desk's e1 naming it, at
  *                once; an e1 naming another host's closed session never does.
  * 12. DEAF       a desk that keeps announcing but lets three wakes in a row time out is
@@ -665,79 +666,54 @@ static void test_close_and_filters(void)
 
 /* ---- 10 ------------------------------------------------------------------------------ */
 
-/* A Control|24 takes the session on the a0 and keeps announcing e0 (docs/protocol.md,
- * "Discovery and handshake"): online with no e1, its e0 no loss, and each e0 answered with an
- * e2, because a Control|24 out of session still ACKs every host frame (measured 2026-10-30). */
+/* A Control|24 in session announces only e1 naming its host, and an e0 means it is out of
+ * session (docs/protocol.md, "Discovery and handshake"): online on the a0 for an e2 at send
+ * counter 0 and an e1 naming us; a reboot's e0 ends the session, and the wake that follows,
+ * an e2 at send counter 0 again, brings it back online: the state change a host repaints on. */
+static unsigned last_wake_counter(void)
+{
+	for (unsigned k = E.nlog; k-- > 0;)
+		if (E.log[k].cmd == DIGINET_CMD_WAKE)
+			return E.log[k].counter;
+	return ~0u;
+}
+
 static void test_control24(void)
 {
 	desk_name = "CNTRL|24";
 	start();
 	go_online();
-	CHK(S_->personality && S_->personality->desk == DIGINET_DESK_CONTROL24);
-	CHK(find_state(DIGINET_S_ONLINE, DIGINET_R_ONLINE) >= 0 && ndesk == 1 && desk_offsets[0] == -1);
+	CHK(S_->personality && S_->personality->desk == DIGINET_DESK_CONTROL24 && S_->personality->announces_session);
+	CHK(find_state(DIGINET_S_ONLINE, DIGINET_R_ONLINE) >= 0 && S_->e1_named_us && E.wakes == 1);
+	CHK(last_wake_counter() == 0 && ndesk >= 1 && desk_offsets[ndesk - 1] == 0);
 
-	/* Its e0 announces and our keepalives go on: still the one session, every e0 answered
-	 * with an e2 the desk ACKs, and no state change on the host. */
+	/* In session: e1 announces and our keepalives, one session, no state change. */
 	unsigned ka = E.keepalives;
 	int states = count_kind(DIGINET_N_STATE);
 	run(25 * S, 10 * MS, NULL);
-	CHK(S_->state == DIGINET_S_ONLINE && E.wakes >= 4 && E.keepalives >= ka + 2 && ndesk >= 4);
+	CHK(S_->state == DIGINET_S_ONLINE && E.wakes == 1 && E.keepalives >= ka + 2 && E.in_session);
 	CHK(count_kind(DIGINET_N_STATE) == states && count_kind(DIGINET_N_ACK_LOST) == 0);
 
-	/* The desk drops the session, as a reboot or its own timeout does, shows Offline and still
-	 * ACKs every host frame: no ACK is lost, and only the e2 at its next e0 takes it back. */
+	/* A reboot: the desk is out of session, still ACKs every host frame (as a Control|24
+	 * does), and announces e0. That e0 ends the session; the wake it gets is an e2 at send
+	 * counter 0, which the desk takes, and the session is online again. */
 	emu_drop_session(&E);
-	unsigned w = E.wakes;
-	run(10 * S, 10 * MS, NULL);
-	CHK(E.in_session && E.wakes > w && S_->state == DIGINET_S_ONLINE);
-	CHK(count_kind(DIGINET_N_STATE) == states && count_kind(DIGINET_N_ACK_LOST) == 0);
-
-	/* The same desk with the e0 left unanswered (the rule before 2026-10-30) stays out of
-	 * session for good: every frame ACKed, nothing ever lost, the host sure it is online. */
-	start();
-	go_online();
-	emu_drop_session(&E);
-	for (int k = 0; k < 2000; k++) {   /* 20 s, each e0 eaten before the host sees it */
-		emu_tick(&E, now);
-		uint8_t f[DIGINET_MAX_FRAME_LEN];
-		size_t len;
-		while ((len = emu_pop(&E, f, sizeof f)) > 0) {
-			struct diginet_frame d;
-			if (diginet_frame_parse(f, len, &d) == DIGINET_OK && d.h.cmd == DIGINET_CMD_ANNOUNCE)
-				continue;
-			diginet_session_rx(S_, f, len, now);
-		}
-		now += 10 * MS;
-		diginet_session_tick(S_, now);
-		pump();
+	int from = nn;
+	run(8 * S, 10 * MS, NULL);
+	int off = -1, wake = -1, on = -1;
+	for (int k = from; k < nn; k++) {
+		if (nlog[k].kind != DIGINET_N_STATE)
+			continue;
+		if (off < 0 && nlog[k].state == DIGINET_S_IDLE && nlog[k].reason == DIGINET_R_DESK_OFFLINE)
+			off = k;
+		else if (off >= 0 && wake < 0 && nlog[k].state == DIGINET_S_WAKING)
+			wake = k;
+		else if (wake >= 0 && on < 0 && nlog[k].state == DIGINET_S_ONLINE && nlog[k].reason == DIGINET_R_ONLINE)
+			on = k;
 	}
-	CHK(!E.in_session && S_->state == DIGINET_S_ONLINE && count_kind(DIGINET_N_ACK_LOST) == 0);
-
-	/* A desk that stops ACKing as well is still found by the unACKed frame: the session ends,
-	 * and the next e0 wakes it again once it answers. */
-	start();
-	go_online();
-	emu_drop_session(&E);
-	E.acks_offline = 0;
-	E.ack_wake = 0;
-	run(20 * S, 10 * MS, NULL);
-	int i = find_state(DIGINET_S_IDLE, DIGINET_R_ACK_LOST);
-	CHK(i > 0 && nlog[i - 1].kind == DIGINET_N_ACK_LOST);
-	E.ack_wake = 1;
-	run(10 * S, 10 * MS, NULL);
-	CHK(E.in_session && S_->state == DIGINET_S_ONLINE);
-
-	/* A Control|24 that announces its session in e1 naming us: its e0 then ends the session,
-	 * as a ProControl's does. */
-	start();
-	E.announces_session = 1;
-	go_online();
-	CHK(S_->e1_named_us && E.wakes == 1);
-	emu_drop_session(&E);
-	emu_announce(&E, now);
-	pump();
-	CHK(find_state(DIGINET_S_IDLE, DIGINET_R_DESK_OFFLINE) >= 0 && find_state(DIGINET_S_IDLE, DIGINET_R_ACK_LOST) < 0);
-	CHK(E.wakes == 2 && S_->state == DIGINET_S_ONLINE);
+	CHK(off >= 0 && wake > off && on > wake);
+	CHK(E.wakes == 2 && last_wake_counter() == 0 && E.in_session && S_->state == DIGINET_S_ONLINE);
+	CHK(find_state(DIGINET_S_IDLE, DIGINET_R_ACK_LOST) < 0 && count_kind(DIGINET_N_ACK_LOST) == 0);
 
 	/* A ProControl that loses an ACK keeps its session: its e0 is what ends one. */
 	desk_name = "MAINUNIT";
@@ -865,8 +841,8 @@ static void test_deaf(void)
 	emu_drop_session(&E);
 	E.ack_wake = 0;
 	nn = 0;
-	run(30 * S, 10 * MS, NULL);   /* the session is lost on its unACKed keepalive, then deaf again */
-	CHK(find_state(DIGINET_S_IDLE, DIGINET_R_ACK_LOST) >= 0 && count_kind(DIGINET_N_DESK_DEAF) == 1);
+	run(30 * S, 10 * MS, NULL);   /* the session is lost on its e0, then deaf again */
+	CHK(find_state(DIGINET_S_IDLE, DIGINET_R_DESK_OFFLINE) >= 0 && count_kind(DIGINET_N_DESK_DEAF) == 1);
 	i = deaf_at(0);
 	CHK(i >= 0 && nlog[i].counter == 3);
 

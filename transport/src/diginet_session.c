@@ -14,7 +14,6 @@ void diginet_session_config_default(struct diginet_session_config *c)
 		return;
 	memset(c, 0, sizeof *c);
 	c->auto_wake = 1;
-	c->answer_e0 = 1;
 	c->sum_mode = DIGINET_SUM_BODY;
 	c->keepalive_ms = 10000;
 	c->ack_timeout_ms = 100;
@@ -139,21 +138,6 @@ static int send_wake(struct diginet_session *s, uint64_t now_us)
 	return DIGINET_OK;
 }
 
-/* The e2 owed to a Control|24's e0: in flight before it is sent, as a data frame is, so a
- * failed send is sent again at the ACK timeout. */
-static int send_reassert(struct diginet_session *s, uint64_t now_us)
-{
-	struct diginet_header h = { .send_counter = 0, .cmd = DIGINET_CMD_WAKE };   /* as every e2 */
-	int n = diginet_frame_build(s->inflight_frame, sizeof s->inflight_frame, s->desk_mac, s->cfg.host_mac,
-				    &h, NULL, 0, s->cfg.sum_mode);
-	if (n < 0)
-		return n;
-	s->inflight_len = (size_t)n;
-	inflight_start(s, 0, now_us);
-	s->stats.tx_wakes++;
-	return send_raw(s, s->inflight_frame, s->inflight_len);
-}
-
 int diginet_session_wake(struct diginet_session *s, uint64_t now_us)
 {
 	if (!s)
@@ -166,7 +150,6 @@ int diginet_session_wake(struct diginet_session *s, uint64_t now_us)
 	}
 	s->e1_named_us = 0;
 	s->wake_acked = 0;
-	s->reassert = 0;
 	s->wake_sent_us = now_us;
 	int r = send_wake(s, now_us);
 	if (r < 0)
@@ -191,7 +174,6 @@ int diginet_session_close(struct diginet_session *s, uint64_t now_us)
 static void session_lost(struct diginet_session *s, enum diginet_reason why)
 {
 	s->inflight = 0;
-	s->reassert = 0;
 	s->desk_counter_valid = 0;
 	set_state(s, DIGINET_S_IDLE, why);
 }
@@ -250,14 +232,10 @@ static void on_announce(struct diginet_session *s, const struct diginet_frame *f
 
 	if (f->h.cmd == DIGINET_CMD_ANNOUNCE) {
 		s->foreign = 0;
+		/* In session a desk announces only e1 naming its host: an e0 is a desk out of
+		 * session, after a reboot, and the session is lost, then woken again. */
 		if (s->state == DIGINET_S_ONLINE && s->e1_named_us)
 			session_lost(s, DIGINET_R_DESK_OFFLINE);
-		/* A Control|24 out of session still ACKs every host frame and shows Offline, so an
-		 * a0 does not tell its e0 in session from its e0 out of one (measured 2026-10-30):
-		 * the e0 is answered with an e2, which a desk in session ACKs and one out of it
-		 * takes the session on. */
-		else if (s->state == DIGINET_S_ONLINE && !announces_e1(s) && s->cfg.answer_e0)
-			s->reassert = 1;
 		if (s->state == DIGINET_S_IDLE && s->cfg.auto_wake)
 			diginet_session_wake(s, now);
 		return;
@@ -525,11 +503,6 @@ int diginet_session_tick(struct diginet_session *s, uint64_t now)
 	if (s->state != DIGINET_S_ONLINE || s->inflight || now < s->backoff_until_us)
 		return DIGINET_OK;
 
-	if (s->reassert) {
-		s->reassert = 0;
-		return send_reassert(s, now);
-	}
-
 	/* The keepalive runs on its own clock: nothing else moves next_keepalive_us. */
 	if (now >= s->next_keepalive_us) {
 		uint8_t ka = 0x00;
@@ -572,9 +545,6 @@ uint64_t diginet_session_deadline(const struct diginet_session *s, uint64_t now)
 		if (!s->inflight)
 			d = min64(d, s->next_keepalive_us > s->backoff_until_us ? s->next_keepalive_us
 									      : s->backoff_until_us);
-		/* an e2 owed to an e0 goes as soon as the slot is free */
-		if (!s->inflight && s->reassert)
-			d = min64(d, s->backoff_until_us > now ? s->backoff_until_us : now);
 	}
 	if (s->inflight)
 		return min64(d, s->inflight_sent_us + ms(s->cfg.ack_timeout_ms));

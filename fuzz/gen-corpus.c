@@ -430,7 +430,7 @@ static void codec_seeds(void)
 
 /* ---- fuzz_transport: a session ---- */
 
-enum { F_AUTO = 1, F_ZERO = 2, F_DESKSET = 4, F_RAW = 8, F_NOANSWER = 64, F_OTHER_IF = 128 };
+enum { F_AUTO = 1, F_ZERO = 2, F_DESKSET = 4, F_RAW = 8, F_OTHER_IF = 128 };
 
 /* the config, in the harness's units: each argument is the value the session gets */
 static void config(unsigned flags, unsigned retries, unsigned ack_ms, unsigned ka_ms, unsigned backoff_ms,
@@ -798,33 +798,27 @@ static void transport_seeds(void)
 	config_default(F_AUTO | F_RAW);
 	t_rawcmd(DIGINET_KEY_LEDS, 1, 0, SYS, 4);
 	emit("transport", "submit-system-cut-short");
-	/* a Control|24: online on the a0 alone, its e0 in session no loss, its keepalive ACKed */
+	/* a Control|24: online on the a0 and its e1 naming us, which it announces in session, its
+	 * keepalive ACKed */
 	config(F_AUTO, 5, 100, 10, 0, 60000, 3000, 0, 48, 314);
 	t_announce(0, 13, 0);
 	t_frame(C_ACK | FROM_DESK | TO_HOST | ACK_LAST, 1, 0, 0, NULL, 0);
-	t_announce(0, 13, 0);
+	t_announce(1, 0, 0);
 	t_time(MSEC, 10);
 	t_frame(C_ACK | FROM_DESK | TO_HOST | ACK_LAST, 2, 0, 0, NULL, 0);
-	t_announce(0, 13, 0);
+	t_announce(1, 0, 0);
 	emit("transport", "c24-session");
 
-	/* a Control|24 online whose keepalive has moved the counter: its e0 is answered with an e2
-	 * that still carries 0 */
+	/* a Control|24 rebooted while online, its keepalive having moved the counter: its e0 ends
+	 * the session, and the wake that follows carries 0 */
 	config(F_AUTO, 5, 100, 10, 0, 60000, 3000, 0, 48, 314);
 	t_announce(0, 13, 0);
 	t_frame(C_ACK | FROM_DESK | TO_HOST | ACK_LAST, 1, 0, 0, NULL, 0);
+	t_announce(1, 0, 0);
 	t_time(MSEC, 20);
 	t_frame(C_ACK | FROM_DESK | TO_HOST | ACK_LAST, 2, 0, 0, NULL, 0);
 	t_announce(0, 13, 0);
-	emit("transport", "c24-e0-after-keepalive");
-
-	/* the same with answer_e0 off: its e0 in session is answered with nothing */
-	config(F_AUTO | F_NOANSWER, 5, 100, 10, 0, 60000, 3000, 0, 48, 314);
-	t_announce(0, 13, 0);
-	t_frame(C_ACK | FROM_DESK | TO_HOST | ACK_LAST, 1, 0, 0, NULL, 0);
-	t_announce(0, 13, 0);
-	t_time(MSEC, 10);
-	emit("transport", "c24-e0-unanswered");
+	emit("transport", "c24-reboot");
 
 	/* a Control|24 that stops ACKing: its keepalive lost after max_retries ends the session,
 	 * and its next e0 wakes it again */

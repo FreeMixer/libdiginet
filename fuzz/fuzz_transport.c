@@ -14,7 +14,7 @@
  *   flags: bit 0 auto_wake, bit 1 the zero header sum, bit 2 desk_mac_set (the Control|24
  *   below), bit 3 raw commands (else tagged, see op 4), bits 4-5 n and deaf_wakes 3 - n (so
  *   an input that leaves them 0 has the default, 3, and 3 turns the report off), bit 6
- *   answer_e0 off, bit 7 the other host's MAC (op 2) is this host's other interface, its one
+ *   bit 7 the other host's MAC (op 2) is this host's other interface, its one
  *   other_host_macs.
  *   config: max_retries u8 % 8, ack_timeout_ms 1 + u8, keepalive_ms 1 + u16, backoff_ms u8,
  *   offline_ms 1 + u16, wake_timeout_ms 1 + u16, display_gap_us u16, max_cmds 1 + u8 % 255,
@@ -140,7 +140,6 @@ static struct {
 	uint8_t desk[SPEC_MAC];
 	int state;
 	int e2_acked, e1_us, foreign;     /* the handshake since the last e2; the latest announce */
-	int reassert;                     /* a Control|24's e0 met while online: an e2 is owed */
 	const struct spec_desk *p;        /* the desk the latest announce that named one named */
 	uint64_t last_rx, wake_sent, next_ka, backoff_until, last_display;
 	int display_sent;
@@ -223,7 +222,6 @@ static void m_set(int st, int why)
 static void m_lost(int why)
 {
 	M.fly.on = 0;
-	M.reassert = 0;
 	M.desk_counter_valid = 0;
 	m_set(S_IDLE, why);
 }
@@ -236,7 +234,6 @@ static int m_wake(void)
 	if (M.foreign)
 		return SPEC_E_REFUSED;
 	M.e1_us = M.e2_acked = 0;
-	M.reassert = 0;
 	M.wake_sent = g_now;
 	OW.e2++;
 	int fails = M.fail;
@@ -359,10 +356,6 @@ static int m_rx(const uint8_t *frame, size_t n)
 			M.foreign = 0;
 			if (M.state == S_ONLINE && M.e1_us)
 				m_lost(R_DESK_OFFLINE);
-			/* ONLINE, a desk that does not announce e1, no e1 yet: an e2 is owed, sent in
-			 * the frame slot with no state change (diginet_session.h:78-80) */
-			else if (M.state == S_ONLINE && !m_announces_e1() && g_cfg.answer_e0)
-				M.reassert = 1;
 			if (M.state == S_IDLE && g_cfg.auto_wake)
 				m_wake();
 		} else if (off >= 0) {
@@ -698,9 +691,7 @@ FUZZ_CHECK check_latest_control(const struct spec_frame *f)
 	 * mutant: transport/src/diginet_session.c:105 `? 0 : s->host_counter` -> `? 0 : s->host_counter + 1`
 	 * input: data-acked
 	 * mutant: transport/src/diginet_session.c:105 `? 0 :` -> `? s->host_counter :`
-	 * input: c24-ack-lost
-	 * mutant: transport/src/diginet_session.c:146 `.send_counter = 0, .cmd` -> `.send_counter = s->host_counter, .cmd`
-	 * input: c24-e0-after-keepalive */
+	 * input: c24-ack-lost */
 	if (f->send != (f->cmd == SPEC_CMD_E2 ? 0 : M.host_counter))
 		abort();
 }
@@ -789,7 +780,7 @@ FUZZ_CHECK check_ack_settle(void)
 FUZZ_CHECK check_state_settle(void)
 {
 	/* An e2 goes exactly when the host wakes: on a wake, with auto_wake on an e0 or an e1
-	 * naming this host while IDLE, and with answer_e0 on a Control|24's e0 while ONLINE.
+	 * naming this host while IDLE.
 	 * contract: diginet_session.h:7, :77, :196
 	 * mutant: transport/src/diginet_session.c:270 `s->state == DIGINET_S_IDLE && s->cfg.auto_wake` -> `0`
 	 * input: retake-e1
@@ -799,8 +790,6 @@ FUZZ_CHECK check_state_settle(void)
 	 * input: retake-e1-manual
 	 * mutant: transport/src/diginet_session.c:261 `s->cfg.auto_wake` -> `!s->cfg.auto_wake`
 	 * input: online
-	 * mutant: transport/src/diginet_session.c:259 ` && s->cfg.answer_e0)` -> `)`
-	 * input: c24-e0-unanswered
 	 * mutant: transport/src/diginet_session.c:278 `diginet_session_wake(s, now);` -> `(void)now;`
 	 * input: retake-other-if
 	 * mutant: transport/src/diginet_session.c:275 `if (names_other_host_mac(s, &a)) {` -> `if (0) {`
@@ -904,17 +893,6 @@ FUZZ_CHECK check_inflight_settle(void)
 		abort();
 }
 
-FUZZ_CHECK check_reassert_settle(void)
-{
-	/* An e2 owed to a Control|24's e0 has gone once the slot is free: online, nothing in
-	 * flight, no back-off holding.
-	 * contract: diginet_session.h:78-80
-	 * mutant: transport/src/diginet_session.c:528 `if (s->reassert) {` -> `if (0) {`
-	 * input: c24-session */
-	if (M.reassert && M.state == S_ONLINE && !M.fly.on && g_now >= M.backoff_until)
-		abort();
-}
-
 FUZZ_CHECK check_keepalive_settle(void)
 {
 	/* A keepalive due while online, with nothing in flight and no back-off holding, has gone.
@@ -993,13 +971,8 @@ static int io_send(void *ctx, const uint8_t *frame, size_t len)
 			check_latest_control(&f);
 			GOT.e2++;
 			g_last_counter = f.send;
-			if (M.state == S_ONLINE && M.reassert) {
-				/* the e2 an e0 was owed: in flight even when its send fails */
-				M.reassert = 0;
-				OW.e2++;
-			} else if (fail) {
+			if (fail)
 				break;   /* the wake fails, and leaves what was in flight */
-			}
 		} else {
 			int ka = f.body_len == 1 && f.body[0] == 0x00 && f.ncmds == 1;
 			unsigned cmds = 0;
@@ -1132,7 +1105,6 @@ static void settle(int ticked)
 	check_state_settle();
 	check_inflight_settle();
 	check_keepalive_settle();
-	check_reassert_settle();
 	if (!g_raw) {
 		check_latest_queue();
 		if (ticked)
@@ -1292,7 +1264,6 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 	g_cfg.auto_wake = flags & 1;
 	g_cfg.sum_mode = flags & 2 ? DIGINET_SUM_ZERO : DIGINET_SUM_BODY;
 	g_cfg.desk_mac_set = flags >> 2 & 1;
-	g_cfg.answer_e0 = !(flags >> 6 & 1);
 	memcpy(g_cfg.desk_mac, DESK, SPEC_MAC);
 	g_cfg.max_retries = fuzz_u8(&in) % 8;
 	g_cfg.ack_timeout_ms = 1u + fuzz_u8(&in);

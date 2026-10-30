@@ -152,7 +152,7 @@ static void test_m1(void)
 	int rc = run_probe(args, "top\nbottom\n", operator_plays);
 	CHK(rc == 0);
 	CHK(has("desk: 00:a0:7e:24:00:01 name \"CNTRL|24\" version \"1.37\" (Control|24)"));
-	CHK(has("online: a0 alone, no e1, host MAC at e1 body offset -1"));
+	CHK(has("online: a0 then e1, host MAC at e1 body offset 0"));
 	CHK(has("step 5: fader 1 to mid-travel: sent b0 00 40 20 00, ACKed"));
 	CHK(has("step 6: strip 1 MUTE on: sent 90 08 40, ACKed"));
 	CHK(has("step 6: strip 1 MUTE off: sent 90 08 00, ACKed"));
@@ -262,11 +262,10 @@ static void test_keepalive_stretch(void)
 	const char *args[] = { "--fd", "3", "--mac", HOST, "--listen", "4", "--keepalive", "3", "--answer", "0", NULL };
 	emu_fresh();
 	E.host_timeout_us = 1500000;   /* this desk gives up 1.5 s after the last host frame */
-	E.acks_offline = 0;            /* and stops ACKing then, so the probe sees the loss */
 	int f0 = fails;
 	run_probe(args, "", NULL);
-	CHK(has("session lost while online (desk stopped ACKing)"));
-	CHK(has("SUMMARY keepalive 3 s: session lost 1 time(s) while online (last: desk stopped ACKing) (R5)"));
+	CHK(has("session lost while online (desk announced e0)"));
+	CHK(has("SUMMARY keepalive 3 s: session lost 1 time(s) while online (last: desk announced e0) (R5)"));
 	if (fails > f0)
 		fprintf(stderr, "---- probe output ----\n%s----\n", out);
 }
