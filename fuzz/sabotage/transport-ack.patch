@@ -1,4 +1,4 @@
-Breaks the check of fuzz/fuzz_transport.c:477 (the ACK echoes the frame's ack counter, not its send counter).
+Breaks the check of fuzz/fuzz_transport.c:514 (the ACK echoes the frame's ack counter, not its send counter).
 Caught by the seed input "data-acked" of fuzz_transport.
 
 diff --git a/transport/src/diginet_session.c b/transport/src/diginet_session.c

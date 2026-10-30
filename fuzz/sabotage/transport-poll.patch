@@ -1,4 +1,4 @@
-Breaks the check of fuzz/fuzz_transport.c:942 (a poll whose recv failed returns 0).
+Breaks the check of fuzz/fuzz_transport.c:1006 (a poll whose recv failed returns 0).
 Caught by the seed input "wake-poll" of fuzz_transport.
 
 diff --git a/transport/src/diginet_session.c b/transport/src/diginet_session.c

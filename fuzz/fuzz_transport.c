@@ -67,7 +67,9 @@
  *     retransmission is that frame again, retry 1, 2, ... never past max_retries, never before
  *     ack_timeout, and always once it is due; DIGINET_N_ACKED comes for the ACK of the frame in
  *     flight and only for it, DIGINET_N_ACK_LOST after exactly max_retries; the deadline is
- *     never later than the next retransmission, nor than a second away.
+ *     never later than the next retransmission, nor than a second away, and with tagged
+ *     commands it is the first of the wake timeout, the silence, the keepalive held past a
+ *     back-off, the retransmission and a command that may go.
  *   - state: the session changes state exactly as the header's diagram says, for the reason
  *     it names: ONLINE only after an a0 for its e2 and, from a desk that announces e1, an e1
  *     naming this host since that e2; an e1 naming one of this host's other MACs is its own
@@ -271,6 +273,41 @@ static void m_tick(void)
 		}
 	} else if (M.state == S_ONLINE && g_now - M.last_rx >= ms(g_cfg.offline_ms))
 		m_lost(R_SILENCE);
+}
+
+/* when the session next has work, the latest a tick may come: the first of the wake timeout,
+ * the silence, the retransmission of the frame in flight and, while nothing is in flight, the
+ * keepalive (held past a back-off) and a command that may go once a back-off ends and, when
+ * every pending command is a display write, the display gap has passed; a second away at most,
+ * and now once that time has passed (diginet_session.h:181, :9-10, :15-18, :21-22, :65, :67) */
+static uint64_t m_deadline(void)
+{
+	uint64_t d = g_now + 1000000, t;
+	if (M.state == S_IDLE || M.state == S_CLOSED)
+		return d;
+	if (M.state == S_WAKING && M.wake_sent + ms(g_cfg.wake_timeout_ms) < d)
+		d = M.wake_sent + ms(g_cfg.wake_timeout_ms);
+	if (M.state == S_ONLINE && M.last_rx + ms(g_cfg.offline_ms) < d)
+		d = M.last_rx + ms(g_cfg.offline_ms);
+	if (M.state == S_ONLINE && !M.fly.on) {
+		t = M.next_ka > M.backoff_until ? M.next_ka : M.backoff_until;
+		if (t < d)
+			d = t;
+	}
+	if (M.fly.on) {
+		if (M.fly.sent + ms(g_cfg.ack_timeout_ms) < d)
+			d = M.fly.sent + ms(g_cfg.ack_timeout_ms);
+	} else if (M.state == S_ONLINE && g_nq) {
+		int display_only = 1;
+		t = M.backoff_until > g_now ? M.backoff_until : g_now;
+		for (unsigned i = 0; i < g_nq && display_only; i++)
+			display_only = g_cmd[g_q[i]].display;
+		if (display_only && M.display_sent && M.last_display + g_cfg.display_gap_us > t)
+			t = M.last_display + g_cfg.display_gap_us;
+		if (t < d)
+			d = t;
+	}
+	return d < g_now ? g_now : d;
 }
 
 /* where this host's MAC sits in the 15 leading bytes of an e1 body, or -1
@@ -884,13 +921,40 @@ FUZZ_CHECK check_inflight_settle(void)
 		abort();
 }
 
+FUZZ_CHECK check_inflight_deadline(void)
+{
+	/* With tagged commands the deadline is exactly when the session next has work
+	 * (m_deadline()): a later one leaves that work waiting, a sooner one spins a poll loop. In
+	 * raw mode the model keeps no queue and no keepalive clock. It runs after every other check
+	 * of the operation, so a bug those checks see is named by them first.
+	 * contract: diginet_session.h:181, :9-10, :15-18, :21-22, :65, :67
+	 * mutant: transport/src/diginet_session.c:546 `s->state == DIGINET_S_ONLINE && s->queued` -> `0`
+	 * input: coalesce
+	 * mutant: transport/src/diginet_session.c:534 `s->state == DIGINET_S_WAKING` -> `0`
+	 * input: wake-timeout-exact
+	 * mutant: transport/src/diginet_session.c:537 `s->last_rx_us + ms(s->cfg.offline_ms)` -> `s->last_rx_us + 2 * ms(s->cfg.offline_ms)`
+	 * input: silence-exact
+	 * mutant: transport/src/diginet_session.c:540 `if (!s->inflight)` -> `if (0)`
+	 * input: keepalive-clock
+	 * mutant: transport/src/diginet_session.c:541 `s->next_keepalive_us > s->backoff_until_us` -> `s->next_keepalive_us < s->backoff_until_us`
+	 * input: backoff-exact
+	 * mutant: transport/src/diginet_session.c:547 `s->backoff_until_us > now ? s->backoff_until_us : now` -> `now`
+	 * input: backoff-exact
+	 * mutant: transport/src/diginet_session.c:551 `display_only && s->display_sent` -> `0`
+	 * input: display-gap-exact
+	 * mutant: transport/src/diginet_session.c:504 `+= ms(s->cfg.keepalive_ms);` -> `+= 2 * ms(s->cfg.keepalive_ms);`
+	 * input: keepalive-clock */
+	if (diginet_session_deadline(&g_s, g_now) != m_deadline())
+		abort();
+}
+
 FUZZ_CHECK check_keepalive_settle(void)
 {
 	/* A keepalive due while online, with nothing in flight and no back-off holding, has gone.
 	 * In raw mode a command can be the byte 00 a keepalive is, so the clock is held in tagged
 	 * mode only.
 	 * contract: diginet_session.h:17-18
-	 * mutant: transport/src/diginet_session.c:504 `+= ms(s->cfg.keepalive_ms);` -> `+= 2 * ms(s->cfg.keepalive_ms);`
+	 * mutant: transport/src/diginet_session.c:502 `now >= s->next_keepalive_us` -> `now > s->next_keepalive_us`
 	 * input: keepalive-clock */
 	if (!g_raw && M.state == S_ONLINE && !M.fly.on && g_now >= M.backoff_until && g_now >= M.next_ka)
 		abort();
@@ -1106,8 +1170,8 @@ static void notice(void *ctx, const struct diginet_notice *n)
 /* ---------------------------------------------------------------- the operations */
 
 /* `ticked`: the operation ended with a tick (time passing, a frame the session read, a poll
- * whose recv did not fail), so what is due has gone; the queue's contents are the model's in
- * tagged mode only */
+ * whose recv did not fail), so what is due has gone; the queue's contents, and with them the
+ * deadline, are the model's in tagged mode only */
 static void settle(int ticked)
 {
 	check_ack_settle();
@@ -1118,6 +1182,7 @@ static void settle(int ticked)
 		check_latest_queue();
 		if (ticked)
 			check_latest_drain();
+		check_inflight_deadline();
 	}
 }
 
