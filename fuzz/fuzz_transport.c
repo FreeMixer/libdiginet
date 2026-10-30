@@ -777,10 +777,6 @@ FUZZ_CHECK check_state_settle(void)
 	 * input: retake-e1-manual
 	 * mutant: transport/src/diginet_session.c:249 `s->cfg.auto_wake` -> `!s->cfg.auto_wake`
 	 * input: online
-	 * mutant: transport/src/diginet_session.c:241 `DIGINET_S_ONLINE && s->e1_named_us` -> `DIGINET_S_ONLINE`
-	 * input: c24-session
-	 * mutant: transport/src/diginet_session.c:241 `DIGINET_S_ONLINE && s->e1_named_us` -> `DIGINET_S_ONLINE && 0`
-	 * input: c24-e1-then-e0
 	 * mutant: transport/src/diginet_session.c:247 ` && s->cfg.answer_e0)` -> `)`
 	 * input: c24-e0-unanswered */
 	if (GOT.e2 != OW.e2)
@@ -834,7 +830,11 @@ FUZZ_CHECK check_state_settle(void)
 	 * mutant: transport/src/diginet_session.c:215 `(s->e1_named_us || !announces_e1(s))` -> `s->e1_named_us`
 	 * input: c24-session
 	 * mutant: transport/src/diginet_session.c:501 `session_lost(s, DIGINET_R_ACK_LOST);` -> `(void)0;`
-	 * input: c24-ack-lost */
+	 * input: c24-ack-lost
+	 * mutant: transport/src/diginet_session.c:241 `DIGINET_S_ONLINE && s->e1_named_us` -> `DIGINET_S_ONLINE`
+	 * input: c24-session
+	 * mutant: transport/src/diginet_session.c:241 `DIGINET_S_ONLINE && s->e1_named_us` -> `DIGINET_S_ONLINE && 0`
+	 * input: c24-e1-then-e0 */
 	if (!same)
 		abort();
 	/* Each change names its reason.
