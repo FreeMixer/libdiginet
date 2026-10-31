@@ -1,4 +1,4 @@
-Breaks the check of fuzz/fuzz_transport.c:819 (submit checks all but the last byte of a command).
+Breaks the check of fuzz/fuzz_transport.c:836 (submit checks all but the last byte of a command).
 Caught by the seed input "submit-system-cut-short" of fuzz_transport.
 
 diff --git a/transport/src/diginet_session.c b/transport/src/diginet_session.c

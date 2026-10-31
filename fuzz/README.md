@@ -65,16 +65,16 @@ named seed, requires exit 134 from the record's own check, and puts the file bac
 seed must exit 0 on the unchanged tree. The count of records met is the proof:
 
 ```
-make fuzz-records: all 205 records and 29 patches met, each by its own check on its own seed (125 checks)
+make fuzz-records: all 211 records and 29 patches met, each by its own check on its own seed (131 checks)
 ```
 
 | Harness | Checks | Records | Sabotage patches |
 | --- | ---: | ---: | ---: |
 | frame | 23 | 29 | 4 |
 | decode | 23 | 33 | 3 |
-| codec | 17 | 29 | 6 |
-| transport | 46 | 85 | 10 |
-| mux | 16 | 29 | 6 |
+| codec | 18 | 30 | 6 |
+| transport | 48 | 87 | 10 |
+| mux | 19 | 32 | 6 |
 
 ### What each harness checks
 
@@ -84,7 +84,7 @@ The header comment of each harness states its properties in full; in short:
 | --- | --- | --- |
 | `fuzz_frame` | `diginet_frame_parse`, `diginet_frame_build`, `diginet_frame_is_keepalive`, `diginet_mac_is_digidesign`, `diginet_announce_parse`, `diginet_sum16` | parse: each refusal with its code, every field where the grammar puts it; round-trip: the builder makes the grammar's frame of those fields and refuses a body past 1484 bytes, the system family and a buffer one byte short; announce: only an e0 or e1 of 33 bytes, `unknown`, version and name at 0, 15 and 24 |
 | `fuzz_decode` | `diginet_msg_next`, `diginet_decoder_next`, `diginet_body_check` | cursor: each step of the grammar, message or refusal, with its place, bytes, cursor and running status; events: each step as the control `docs/protocol.md` makes of it, every field; refusal: a body refused exactly when it holds F0 13 xx 70 |
-| `fuzz_codec` | every encoder of `src/diginet_codec.c`, the personalities, `diginet_scribble_text`, `diginet_seg7`, `diginet_counter_text`, the meter and ring helpers | personality, refusal of function 0x70, range (success exactly in range, the code otherwise, the command untouched on failure), bytes (the control's message, its key, the display flag), text |
+| `fuzz_codec` | every encoder of `src/diginet_codec.c`, the personalities, `diginet_scribble_text`, `diginet_seg7`, `diginet_counter_text`, the meter and ring helpers | personality (each desk's values; the text of ops 12 and 13 read as a name selects a desk exactly when it is that desk's whole name), refusal of function 0x70, range (success exactly in range, the code otherwise, the command untouched on failure), bytes (the control's message, its key, the display flag), text |
 | `fuzz_transport` | `diginet_session_rx`, `_tick`, `_submit`, `_wake`, `_close`, `_poll`, `_deadline` | sent, ack, inflight, state, keepalive, latest, refusal, poll (below) |
 | `fuzz_mux` | `diginet_mux_rx`, `_tick`, `_attach`, `_detach`, `_poll`, `_deadline`, `_find`, `_session` | appear, route, send, gone, attach, deadline (below) |
 
@@ -99,8 +99,9 @@ and notice the library then gives is held to the model as it happens, and the st
 and the queue after it. Its properties: every frame sent is
 the grammar's, to the known desk, padded, with the sum its mode asks and no system family; every
 desk data frame ACKed once with its counter; one frame in flight, retransmitted never early, never
-past `max_retries`, always once due; ONLINE only after the a0 and an e1 naming this host; an e2
-exactly when the host wakes and never into another host's session; a desk that announces but
+past `max_retries`, always once due, and dropped only once its last retransmission's timeout has passed; ONLINE only after the a0 and an e1 naming this host; an e2
+exactly when the host wakes and never into another host's session, and the one owed to an e0 only
+when no frame is in flight and no back-off holds; a desk that announces but
 lets `deaf_wakes` wakes in a row time out reported once, at that wake, with that count, and
 never after an a0, another host's e1 or a timeout with no recent announce; the keepalive on its own
 clock, never early, never skipped; frames within `max_cmds` and `max_body`, their count and
@@ -118,8 +119,10 @@ desk is in which slot, on which interface, attached or not, when its last frame 
 whether its session ended on silence (read from that session's own notice; the session itself
 is `fuzz_transport`'s). Its properties: APPEARED exactly for the announce of a Digidesign MAC no
 desk holds while a slot is free, in the lowest free slot, with its MAC, interface, announce and
-personality; a present desk's frame on its interface to its attached session and to no other,
-on another interface to none, and every session notice under its own desk with its desk's
+personality, the announce's version and first 15 bytes as the body has them; a present desk's frame
+on its interface to its attached session and to no other, on another interface to none; a data
+frame for that interface's MAC or for all, one a0 from that session with the frame's counter, and
+no a0 otherwise; every session notice under its own desk with its desk's
 frames only; every frame a session sends out of its desk's interface, to that desk, from that
 interface's MAC; GONE exactly for a desk silent for `gone_ms` or whose session ended on
 silence, on a tick, and the slot forgotten; attach and detach answering as the header says; the
