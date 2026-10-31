@@ -39,7 +39,8 @@
  *
  * Properties, each an abort() in a check_ function:
  *   - personality: each desk is the one docs/protocol.md describes, found by its announce
- *     name, and no other name or desk is one.
+ *     name, and no other name or desk is one; the text of ops 12 and 13 is also read as a
+ *     name, and selects a desk exactly when it is that desk's whole name.
  *   - refusal: the system family, function 0x70, is never encoded.
  *   - range: an encoder succeeds exactly for the arguments its comment in diginet_codec.h
  *     takes, fails with the code it gives otherwise, and leaves the command untouched when it
@@ -281,6 +282,18 @@ FUZZ_CHECK check_personality(void)
 	    diginet_personality_from_name(SPEC_PC.name) != pc ||
 	    diginet_personality_from_name("CNTRL|2") || diginet_personality_from_name("MAINUNITS") ||
 	    diginet_personality_from_name(""))
+		abort();
+}
+
+FUZZ_CHECK check_personality_name(const char *name)
+{
+	const struct spec_desk *want = !strcmp(name, SPEC_C24.name) ? &SPEC_C24 : !strcmp(name, SPEC_PC.name) ? &SPEC_PC : NULL;
+	const struct diginet_personality *p = diginet_personality_from_name(name);
+	/* A name from the input selects the desk it names in full, and any other name selects none.
+	 * contract: diginet_codec.h:44-45; docs/protocol.md:47
+	 * mutant: src/diginet_codec.c:22 `!strcmp(name, personalities[i].announce_name)` -> `!strcmp(name + !!name[0], personalities[i].announce_name + 1)`
+	 * input: personality-names */
+	if (!p != !want || (want && p->device != want->device))
 		abort();
 }
 
@@ -641,6 +654,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 			}
 			k.a = fuzz_u8(&in) & 0x7f;
 			text_arg(&in, text);
+			check_personality_name(text);
 			check_text_scribble(text, k.bytes, sizeof k.bytes, k.desk->chars);
 			k.kind = SCRIBBLE;
 			break;
@@ -652,6 +666,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 				k.desk = &SPEC_C24;
 			}
 			text_arg(&in, text);
+			check_personality_name(text);
 			check_text_seg7();
 			check_text_counter(text, k.bytes, sizeof k.bytes, &dots);
 			/* a text the counter cannot show gives no digits, so no counter write */

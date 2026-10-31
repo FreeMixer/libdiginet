@@ -121,11 +121,15 @@ static struct {
 /* what one operation owes, and what it got */
 static struct {
 	int appeared, slot, ifx, routed_to, attach_in_notice;
+	int ack_to;             /* the attached desk whose session owes this frame an a0, or -1 */
+	uint32_t ack_counter;   /* the send counter of that frame */
 	uint8_t mac[SPEC_MAC];
-	const uint8_t *name;
+	const uint8_t *name, *body;
 } OW;
 static struct {
 	int appeared, routed;
+	int acks, ack_desk;
+	uint32_t ack_counter;
 } GOT;
 
 static int m_find(const uint8_t *mac)
@@ -146,7 +150,7 @@ static void op_begin(void)
 {
 	memset(&OW, 0, sizeof OW);
 	memset(&GOT, 0, sizeof GOT);
-	OW.slot = OW.routed_to = -1;
+	OW.slot = OW.routed_to = OW.ack_to = -1;
 	for (int i = 0; i < SLOTS; i++)
 		D[i].rx_before = session_rx_count(i);
 }
@@ -165,6 +169,14 @@ static void m_rx(const uint8_t *frame, size_t n, int ifx)
 			return;
 		D[i].last_rx = g_now;
 		OW.routed_to = i;
+		/* an attached desk's session reads a data frame for this interface's MAC, or a
+		 * broadcast one, and ACKs it (diginet_session.h:15) */
+		uint8_t mine[SPEC_MAC];
+		if (D[i].attached && f.cmd == SPEC_CMD_DATA &&
+		    (!memcmp(f.dst, SPEC_BCAST, SPEC_MAC) || (host_mac(ifx, mine) && !memcmp(f.dst, mine, SPEC_MAC)))) {
+			OW.ack_to = i;
+			OW.ack_counter = f.send;
+		}
 		return;
 	}
 	if (memcmp(f.src, SPEC_OUI, sizeof SPEC_OUI) || (f.cmd != SPEC_CMD_E0 && f.cmd != SPEC_CMD_E1) ||
@@ -178,6 +190,7 @@ static void m_rx(const uint8_t *frame, size_t n, int ifx)
 	OW.slot = i;
 	OW.ifx = ifx;
 	OW.name = f.body + SPEC_ANN_NAME;
+	OW.body = f.body;
 	memcpy(OW.mac, f.src, SPEC_MAC);
 	memset(&D[i], 0, sizeof D[i]);
 	D[i].present = 1;
@@ -226,6 +239,19 @@ FUZZ_CHECK check_appear_notice(const struct diginet_mux_notice *n)
 	if (!n->announce || memcmp(n->announce->name, OW.name, nn) || n->announce->name[nn] ||
 	    !n->personality != !want || (want && n->personality->device != want->device))
 		abort();
+	size_t vn = spec_strz_len(OW.body + SPEC_ANN_VERSION);
+	/* Its version is the body bytes from 15, up to the first NUL and at most 9, terminated.
+	 * contract: diginet_mux.h:104; protocol/diginet.ksy `announce` `version` (strz, size: 9)
+	 * mutant: transport/src/diginet_mux.c:175 `m->stats.appeared++;` -> `m->stats.appeared++, a.version[0] = 0;`
+	 * input: two-desks */
+	if (memcmp(n->announce->version, OW.body + SPEC_ANN_VERSION, vn) || n->announce->version[vn])
+		abort();
+	/* Its unknown field is the first 15 body bytes, the same bytes.
+	 * contract: diginet.h:130-131; protocol/diginet.ksy `announce`
+	 * mutant: transport/src/diginet_mux.c:175 `m->stats.appeared++;` -> `m->stats.appeared++, a.unknown_len = 0;`
+	 * input: two-desks */
+	if (n->announce->unknown_len != SPEC_ANN_UNKNOWN || memcmp(n->announce->unknown, OW.body, SPEC_ANN_UNKNOWN))
+		abort();
 }
 
 FUZZ_CHECK check_appear_settle(void)
@@ -271,6 +297,15 @@ FUZZ_CHECK check_route_settle(void)
 		if (D[i].present && D[i].attached && (owed ? got <= D[i].rx_before : got != D[i].rx_before))
 			abort();
 	}
+	/* The session got the frame itself: a data frame routed to an attached desk makes that
+	 * desk's session send one a0 with the frame's send counter (check_send_frame holds where
+	 * it goes), and no other frame makes one.
+	 * contract: diginet_mux.h:12-19; diginet_session.h:15
+	 * mutant: transport/src/diginet_mux.c:148 `frame, len` -> `frame, 0`
+	 * input: two-desks */
+	if (GOT.acks != (OW.ack_to >= 0) ||
+	    (OW.ack_to >= 0 && (GOT.ack_desk != OW.ack_to || GOT.ack_counter != OW.ack_counter)))
+		abort();
 }
 
 FUZZ_CHECK check_send_frame(int ifx, const uint8_t *frame, size_t len)
@@ -287,6 +322,11 @@ FUZZ_CHECK check_send_frame(int ifx, const uint8_t *frame, size_t len)
 	if (i < 0 || !D[i].attached || ifx != D[i].ifx || !host_mac(ifx, mine) || memcmp(f.src, mine, SPEC_MAC))
 		abort();
 	D[i].last_sent = f.send;
+	if (f.cmd == SPEC_CMD_ACK) {
+		GOT.acks++;
+		GOT.ack_desk = i;
+		GOT.ack_counter = f.ack;
+	}
 }
 
 FUZZ_CHECK check_gone_notice(const struct diginet_mux_notice *n, int ticking)

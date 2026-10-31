@@ -431,6 +431,13 @@ static void codec_seeds(void)
 		op(13, C24); put16(strlen(COUNTER[i])); put(COUNTER[i], strlen(COUNTER[i]));
 	}
 	emit("codec", "counter-text");
+	/* text read as an announce name: each desk's name, each with its first byte changed, and
+	 * cut one byte short */
+	static const char *const NAMES[] = { "CNTRL|24", "MAINUNIT", "XNTRL|24", "XAINUNIT", "CNTRL|2", "MAINUNI", "" };
+	for (size_t i = 0; i < sizeof NAMES / sizeof NAMES[0]; i++) {
+		op(12, NONE); put8(0x10); put16(strlen(NAMES[i])); put(NAMES[i], strlen(NAMES[i]));
+	}
+	emit("codec", "personality-names");
 	op(14, NONE); put32(0); put16(0);
 	op(14, NONE); put32(10); put16(0x3ff);
 	op(14, NONE); put32(14); put16(0x3fff);
@@ -582,6 +589,15 @@ static void transport_seeds(void)
 		t_time(MSEC, 1);
 	t_time(MSEC, 60);
 	emit("transport", "wake-unanswered");
+
+	/* an e2 nobody answers, one retry: a tick after that retry finds it waiting for its timeout,
+	 * then the timeout drops it */
+	config(F_AUTO, 1, 10, 60000, 0, 60000, 50, 0, 48, 314);
+	t_announce(0, 13, 1);
+	t_time(MSEC, 10);
+	t_time(MSEC, 1);
+	t_time(MSEC, 9);
+	emit("transport", "ack-lost-waits-its-timeout");
 
 	/* a retransmission whose send fails still counts */
 	config(F_AUTO, 2, 1, 60000, 0, 60000, 50, 0, 48, 314);

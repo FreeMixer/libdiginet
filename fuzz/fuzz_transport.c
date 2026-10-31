@@ -63,10 +63,10 @@
  *     zero-sum mode), and holds no system family F0 13 xx 70.
  *   - ack: every desk data frame to this host is ACKed at once, while the session is not
  *     closed: one a0 echoing the frame's send counter, with no body; and no other frame is.
- *   - inflight: one host frame is in flight, and data goes only while online; a
+ *   - inflight: one host frame is in flight, data and an owed e2 go only in a free slot; a
  *     retransmission is that frame again, retry 1, 2, ... never past max_retries, never before
  *     ack_timeout, and always once it is due; DIGINET_N_ACKED comes for the ACK of the frame in
- *     flight and only for it, DIGINET_N_ACK_LOST after exactly max_retries; the deadline is
+ *     flight and only for it, DIGINET_N_ACK_LOST after exactly max_retries and the last timeout; the deadline is
  *     never later than the next retransmission, nor than a second away, and with tagged
  *     commands it is the first of the wake timeout, the silence, the keepalive held past a
  *     back-off, an e2 owed to a Control|24's e0, the retransmission and a command that may go.
@@ -613,6 +613,23 @@ FUZZ_CHECK check_inflight_lost(const struct diginet_notice *n)
 	if (!M.fly.on || n->counter != M.fly.counter || M.fly.retries != g_cfg.max_retries ||
 	    n->retry != g_cfg.max_retries)
 		abort();
+	/* It comes no sooner than ack_timeout after the last retransmission.
+	 * contract: diginet_session.h:17, :105
+	 * mutant: transport/src/diginet_session.c:515 `now - s->inflight_sent_us >= ms(s->cfg.ack_timeout_ms)` -> `(now - s->inflight_sent_us >= ms(s->cfg.ack_timeout_ms) || s->inflight_retries == s->cfg.max_retries)`
+	 * input: ack-lost-waits-its-timeout */
+	if (g_now - M.fly.sent < ms(g_cfg.ack_timeout_ms))
+		abort();
+}
+
+FUZZ_CHECK check_inflight_reassert(void)
+{
+	/* The e2 owed to an e0 waits for a free slot, like a data frame: nothing in flight, and no
+	 * back-off after a desk retry holding.
+	 * contract: diginet_session.h:16, :18-19; docs/protocol.md:49
+	 * mutant: transport/src/diginet_session.c:260 `s->reassert = 1;` -> `send_reassert(s, now);`
+	 * input: c24-e0-during-backoff */
+	if (M.fly.on || g_now < M.backoff_until)
+		abort();
 }
 
 FUZZ_CHECK check_state_online(void)
@@ -1092,6 +1109,7 @@ static int io_send(void *ctx, const uint8_t *frame, size_t len)
 			g_last_counter = f.send;
 			if (M.state == S_ONLINE && M.reassert) {
 				/* the e2 an e0 was owed: in flight even when its send fails */
+				check_inflight_reassert();
 				M.reassert = 0;
 				OW.e2++;
 			} else if (fail) {
