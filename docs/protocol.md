@@ -181,9 +181,9 @@ compared here with what this library does. Citations are to its files at commit 
 | Display pacing | 2 ms between frames that carry display writes | 2 ms after each display batch (`motore.py:546-550`) | Agrees |
 | Keepalive | Body `00`, count 1, every 10 s on its own clock | An empty data frame, count 0, every 1 s (`motore.py:951-960`, `:1023-1034`); every 2.5 s in the calculator (`Calculator24/Calculator24.py:78-81`) | Both forms work. The desk's own timeout (R5) stays open |
 | Offline detection | 25 s with no frame from the desk | 4 s, with its 1 s pings keeping the desk talking (`motore.py:404`, `:1028-1033`) | No conflict: each interval is longer than that host's keepalive |
-| Wake | One `e2`, then wait for an `a0` and an `e1` naming this host | `e2` five times 5 ms apart, then 200 ms, then drive the desk (`motore.py:1172-1189`) | No conflict |
+| Wake | One `e2`, 3 s for its `a0`, then 10 s for an `e1` naming this host, the announce period being up to 9.4 s | `e2` five times 5 ms apart, then 200 ms, then drive the desk (`motore.py:1172-1189`) | No conflict |
 | Announce | Version from body byte 15, name from byte 24, 9 bytes each (ReaControl's layout) | Version from byte 14 (10 bytes, cut at the first NUL), name from byte 24 (8 bytes) (`motore.py:1191-1198`) | The name agrees. Byte 14 is the `v` of `v1.08` in every Control|24 announce captured, so C24-Engine's version is the whole one and ours drops the `v` |
-| Host MAC in `e1` | Searched for in the leading bytes (A6) | Not read | Open (A6) |
+| Host MAC in `e1` | Searched for in the leading bytes (A6) | Not read | Measured at body offset 0 on a Control\|24 (A6) |
 | Running status | Expanded; a data byte with no status in force is reported and skipped | Expanded; such a byte is skipped (`motore.py:1100-1137`) | Agrees |
 | Fader | 10-bit position, MSB = v>>3, LSB = (v&7)<<4 | 14-bit, MSB = v>>7, LSB = v&0x7F, both ways (`motore.py:585-590`, `:1345-1372`) | Agrees: the same bytes, with the low 4 bits used |
 | Touch | `90 09 (40\|tt)` touched, `90 09 tt` released | The same (`motore.py:1249-1259`) | Agrees |

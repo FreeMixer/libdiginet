@@ -775,7 +775,7 @@ static void test_control24(void)
 	desk_name = "SOMEDESK";
 	start();
 	E.announces_session = 0;
-	run(10 * S, 1 * MS, NULL);
+	run(15 * S, 1 * MS, NULL);
 	CHK(E.wakes >= 1 && find_state(DIGINET_S_ONLINE, DIGINET_R_ONLINE) < 0);
 	CHK(find_state(DIGINET_S_IDLE, DIGINET_R_WAKE_TIMEOUT) >= 0);
 	desk_name = "MAINUNIT";
@@ -962,6 +962,48 @@ static void test_deaf(void)
 
 /* ---- 13 ----------------------------------------------------------------------------- */
 
+/* A desk ACKs the e2 at once and shows its e1 at its next announce, up to 9.4 s later on a Control|24
+ * (libdiginet#29): that wait is no wake timeout. A desk that ACKed and never shows one is not deaf. */
+static void test_e1_after_a0(void)
+{
+	start();
+	E.e1_at_announce = 1;
+	announce_period = 9400 * MS;
+	run(20 * MS, 1 * MS, NULL);
+	CHK(S_->state == DIGINET_S_WAKING && S_->wake_acked);
+	run(9400 * MS, 1 * MS, NULL);
+	CHK(S_->state == DIGINET_S_ONLINE && find_state(DIGINET_S_IDLE, DIGINET_R_WAKE_TIMEOUT) < 0);
+	announce_period = 7 * S;
+
+	desk_name = "SOMEDESK";
+	start();
+	E.announces_session = 0;
+	run(9 * S, 1 * MS, NULL);
+	CHK(S_->state == DIGINET_S_WAKING);
+	run(2 * S, 1 * MS, NULL);
+	CHK(find_state(DIGINET_S_IDLE, DIGINET_R_WAKE_TIMEOUT) >= 0 && S_->deaf_count == 0);
+	desk_name = "MAINUNIT";
+}
+
+/* A desk still in a session this host has left sends a key: it is ACKed, or the desk retries it, and
+ * passed up with the state the session is in, for the caller to judge (libdiginet#29, was #15). */
+static void test_data_before_online(void)
+{
+	static const uint8_t body[] = { 0x90, 0x01, 0x7f };
+	struct diginet_header h = { .cmd = DIGINET_CMD_DATA, .send_counter = 12, .num_commands = 1 };
+	uint8_t f[128];
+	start();
+	S_->cfg.auto_wake = 0;
+	run(2 * MS, 1 * MS, NULL);   /* the announce makes the desk known */
+	CHK(S_->state == DIGINET_S_IDLE && S_->desk_known);
+	unsigned acks = E.acks_from_host;
+	int n = diginet_frame_build(f, sizeof f, HOST_MAC, DESK_MAC, &h, body, sizeof body, DIGINET_SUM_BODY);
+	CHK(diginet_session_rx(S_, f, (size_t)n, now) == 0);
+	pump();
+	CHK(S_->state == DIGINET_S_IDLE && E.acks_from_host == acks + 1);
+	CHK(count_kind(DIGINET_N_DATA) == 1 && nlog[nn - 1].kind == DIGINET_N_DATA && nlog[nn - 1].state == DIGINET_S_IDLE);
+}
+
 /* The console restarted while the desk held its session (a capture on the desk): the desk kept
  * announcing e1 naming this host every ~6.5 s, ACKed our e2 at send counter 0, and announced
  * nothing new after it; the e1 that woke the session is the proof it is ours. */
@@ -1006,6 +1048,8 @@ int main(void)
 	test_retake();
 	test_deaf();
 	test_restart();
+	test_e1_after_a0();
+	test_data_before_online();
 	if (fails) {
 		fprintf(stderr, "test_transport: %d failure(s)\n", fails);
 		return 1;

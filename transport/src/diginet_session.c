@@ -223,6 +223,15 @@ static int announces_e1(const struct diginet_session *s)
 	return !s->personality || s->personality->announces_session;
 }
 
+/* A desk that ACKed its e2 shows its e1 at its next announce, 6 to 9.4 s apart on a Control|24 (docs/protocol.md):
+ * wake_timeout is how long it has to answer, this how long it then has to announce. */
+#define E1_WAIT_MS 10000u
+
+static uint64_t wake_deadline(const struct diginet_session *s)
+{
+	return s->wake_sent_us + ms(s->wake_acked ? E1_WAIT_MS : s->cfg.wake_timeout_ms);
+}
+
 static void maybe_online(struct diginet_session *s)
 {
 	if (s->state == DIGINET_S_WAKING && s->wake_acked && (s->e1_named_us || !announces_e1(s))) {
@@ -495,9 +504,10 @@ int diginet_session_tick(struct diginet_session *s, uint64_t now)
 	if (s->state == DIGINET_S_CLOSED || s->state == DIGINET_S_IDLE)
 		return DIGINET_OK;
 
-	if (s->state == DIGINET_S_WAKING && now - s->wake_sent_us >= ms(s->cfg.wake_timeout_ms)) {
-		/* Deaf: the desk still announces (within offline_ms) and lets wake after wake time out. */
-		int announcing = s->announce_seen && now - s->last_announce_us < ms(s->cfg.offline_ms);
+	if (s->state == DIGINET_S_WAKING && now >= wake_deadline(s)) {
+		/* Deaf: the desk still announces (within offline_ms) and lets wake after wake time out,
+		 * never answering; one that ACKed the e2 heard it. */
+		int announcing = !s->wake_acked && s->announce_seen && now - s->last_announce_us < ms(s->cfg.offline_ms);
 		s->deaf_count = announcing ? s->deaf_count + 1 : 0;
 		session_lost(s, DIGINET_R_WAKE_TIMEOUT);
 		if (s->cfg.deaf_wakes && s->deaf_count == s->cfg.deaf_wakes) {
@@ -575,7 +585,7 @@ uint64_t diginet_session_deadline(const struct diginet_session *s, uint64_t now)
 	if (!s || s->state == DIGINET_S_CLOSED || s->state == DIGINET_S_IDLE)
 		return d;
 	if (s->state == DIGINET_S_WAKING)
-		d = min64(d, s->wake_sent_us + ms(s->cfg.wake_timeout_ms));
+		d = min64(d, wake_deadline(s));
 	if (s->state == DIGINET_S_ONLINE) {
 		d = min64(d, s->last_rx_us + ms(s->cfg.offline_ms));
 		/* A keepalive due during a back-off goes when the back-off ends: tick() holds it

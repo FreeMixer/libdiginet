@@ -109,7 +109,7 @@ void emu_from_host(struct desk_emu *e, const uint8_t *buf, size_t len, uint64_t 
 				e->data_since_e2 = 0;
 				e->blanks++;
 				e->data_since_blank = 0;
-				if (e->shows_session)
+				if (e->shows_session && !e->e1_at_announce)
 					emu_announce(e, now_us);   /* e1 naming the host */
 			} else if (!e->shows_session && e->data_since_e2) {
 				/* a Control|24 that has the host's data and another e2 enters its
