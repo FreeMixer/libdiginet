@@ -12,7 +12,8 @@
  *   any --(diginet_session_close: host e3)--> CLOSED
  *
  * While a session lives:
- *   - every desk data frame is ACKed at once, its counter echoed;
+ *   - every desk data frame is ACKed at once, its counter echoed, and passed up in any state, the
+ *     notice naming it: a desk still in a session this host has left retries what is not ACKed;
  *   - one host data frame is in flight; with no ACK after ack_timeout it is sent again with
  *     the retry field set (1, 2, ...), and after max_retries it is dropped and reported;
  *   - after a desk retry the host holds its own frames for backoff_ms;
@@ -84,7 +85,7 @@ struct diginet_session_config {
 	uint32_t max_retries;           /* 5 */
 	uint32_t backoff_ms;            /* 300 */
 	uint32_t offline_ms;            /* 25000 */
-	uint32_t wake_timeout_ms;       /* 3000 */
+	uint32_t wake_timeout_ms;       /* 3000: for the a0; a desk that ACKed has 10 s to show its e1 */
 	uint32_t display_gap_us;        /* 2000 */
 	uint32_t max_cmds;              /* 48 */
 	uint32_t max_body;              /* 314 */
