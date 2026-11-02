@@ -3,7 +3,7 @@
 # libdiginet-transport, the wire under it, from one source and one version; diginet-tools
 # carries diginet-probe and diginet-packet-helper.
 Name:           libdiginet
-Version:        0.1.5
+Version:        0.1.6
 # The sonames' majors. rpm derives this package's provides and every consumer's requires from
 # them. They copy DIGINET_ABI and DIGINET_TRANSPORT_ABI of include/diginet/diginet.h, and
 # tests/conformance-packaging.sh (in make test) refuses a copy that disagrees.
@@ -99,6 +99,12 @@ make CFLAGS="%{optflags}" test
 %{_mandir}/man1/diginet-packet-helper.1*
 
 %changelog
+* Sun Nov 01 2026 Pau Aliagas <linuxnow@gmail.com> - 0.1.6-1
+- A desk that ACKed its e2 has 10 s to show its e1, since it does so at its
+  next announce, up to 9.4 s apart on a Control|24. The 3 s stays for the
+  a0. Such a desk no longer counts towards DESK_DEAF (#56).
+- Five fuzz checks hold to what their comments say (#55).
+
 * Sat Oct 31 2026 Pau Aliagas <linuxnow@gmail.com> - 0.1.5-1
 - diginet_sysex_encode() refuses a len within 4 of SIZE_MAX with
   DIGINET_E_SPACE. Such a len wrapped the space check, and the encoder read

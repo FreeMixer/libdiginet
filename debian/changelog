@@ -1,3 +1,12 @@
+libdiginet (0.1.6) unstable; urgency=medium
+
+  * A desk that ACKed its e2 has 10 s to show its e1, since it does so at its
+    next announce, up to 9.4 s apart on a Control|24. The 3 s stays for
+    the a0. Such a desk no longer counts towards DESK_DEAF (#56).
+  * Five fuzz checks hold to what their comments say (#55).
+
+ -- Pau Aliagas <linuxnow@gmail.com>  Sun, 01 Nov 2026 09:02:14 +0100
+
 libdiginet (0.1.5) unstable; urgency=medium
 
   * diginet_sysex_encode() refuses a len within 4 of SIZE_MAX with
