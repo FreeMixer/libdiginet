@@ -26,6 +26,7 @@ libdiginet speaks DigiNet, the raw Ethernet protocol of the Digidesign Control|2
 ProControl control surfaces, so a Linux mixer or DAW can drive one again: motor faders and
 their touch, V-Pots and their LED rings, every key and lamp, scribble strips, meters, the
 counter and the jog wheel.
+Its documentation is on openmixer.org.
 
 This package holds two shared libraries. libdiginet is the protocol: the frame grammar,
 encoders and decoders for every control, and one personality per desk; it refuses to encode
@@ -43,6 +44,7 @@ Headers, pkg-config files (libdiginet, libdiginet-transport) and the Kaitai Stru
 the protocol, diginet.ksy, for building programs that drive a Control|24 or ProControl; and
 libdiginet-emu, a static desk emulator with its headers and pkg-config file, for testing them
 without a desk.
+Its documentation is on openmixer.org.
 
 %package -n diginet-tools
 Summary:        diginet-probe and diginet-packet-helper for a Control|24 or ProControl
@@ -53,6 +55,7 @@ diginet-probe wakes a Control|24 or ProControl cabled to a network interface, mo
 lights a lamp, writes a scribble strip, logs and decodes every key, touch and turn, and ends
 with a summary of what the desk answered. It is installed with the one capability it needs
 to open a packet socket, cap_net_raw.
+Its documentation is on openmixer.org.
 
 diginet-packet-helper opens the packet socket that hears a desk on every network interface and
 hands it to the program that started it, so that program needs no capability. It is installed
@@ -74,14 +77,12 @@ make CFLAGS="%{optflags}" test
 
 %files
 %license LICENSE
-%doc README.md
 %{_libdir}/libdiginet.so.%{version}
 %{_libdir}/libdiginet.so.%{abi}
 %{_libdir}/libdiginet-transport.so.%{version}
 %{_libdir}/libdiginet-transport.so.%{tabi}
 
 %files devel
-%doc BUILDING.md docs/protocol.md
 %dir %{_includedir}/diginet
 %dir %{_includedir}/diginet/transport
 %dir %{_includedir}/diginet/testsupport
@@ -98,7 +99,6 @@ make CFLAGS="%{optflags}" test
 %{_datadir}/diginet/diginet.ksy
 
 %files -n diginet-tools
-%doc docs/probe.md
 %caps(cap_net_raw=ep) %{_bindir}/diginet-probe
 %caps(cap_net_raw=ep) %{_bindir}/diginet-packet-helper
 %{_mandir}/man1/diginet-probe.1*

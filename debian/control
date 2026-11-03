@@ -20,6 +20,8 @@ Description: protocol library for the Digidesign Control|24 and ProControl
  This is the protocol: the frame grammar, encoders and decoders for every
  control, and one personality per desk. It refuses to encode the desk's
  memory-writing message family.
+ .
+ Its documentation is on openmixer.org.
 
 Package: libdiginet-transport0
 Architecture: any
@@ -30,6 +32,8 @@ Description: transport layer for the Digidesign Control|24 and ProControl
  packet socket, discovery, the online handshake, acknowledgements, a keepalive
  that ACKs never starve, retransmit, back-off, latest-wins coalescing and
  display pacing. It never wakes a desk another host is using.
+ .
+ Its documentation is on openmixer.org.
 
 Package: libdiginet-dev
 Section: libdevel
@@ -42,6 +46,8 @@ Description: Control|24 and ProControl libraries, development files
  that drive a Control|24 or ProControl; and libdiginet-emu, a static desk
  emulator with its headers and pkg-config file, for testing them without a
  desk.
+ .
+ Its documentation is on openmixer.org.
 
 Package: diginet-tools
 Section: utils
@@ -57,3 +63,5 @@ Description: first test of a Digidesign Control|24 or ProControl
  diginet-packet-helper opens the packet socket that hears a desk on every
  network interface and hands it to the program that started it, so that
  program needs no capability. It too is given cap_net_raw on install.
+ .
+ Its documentation is on openmixer.org.
