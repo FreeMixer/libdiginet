@@ -85,3 +85,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: make ksy-check
         run: make ksy-check
+
+  # the checks every FreeMixer repository runs on what it publishes: commit messages, private references, and no
+  # local copy of either (FreeMixer/.github's public-sources-check)
+  public-sources:
+    uses: FreeMixer/.github/.github/workflows/public-sources-check.yml@v1
