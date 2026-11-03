@@ -1,3 +1,13 @@
+libdiginet (0.1.7) unstable; urgency=medium
+
+  * libdiginet-emu: the desk emulator, its pump and the network-namespace
+    helper are installed as test support (a static archive,
+    include/diginet/testsupport and libdiginet-emu.pc), in libdiginet-dev and
+    libdiginet-devel, so consumers build their tests against it instead of
+    carrying copies (#59).
+
+ -- Pau Aliagas <linuxnow@gmail.com>  Tue, 03 Nov 2026 16:00:00 +0100
+
 libdiginet (0.1.6) unstable; urgency=medium
 
   * A desk that ACKed its e2 has 10 s to show its e1, since it does so at its
