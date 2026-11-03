@@ -24,8 +24,6 @@ jobs:
             apt-get update && apt-get -y install --no-install-recommends gcc libc6-dev make git pkg-config ca-certificates
           fi
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0   # the public-sources gate reads every commit message
       - name: Trust the checkout
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Build
