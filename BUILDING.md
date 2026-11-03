@@ -13,18 +13,21 @@ make clean
 The code is plain C11 built with `-Wall -Wextra -Werror`, so a warning is a build failure.
 `CC` and `CFLAGS` can be overridden on the command line; the warning flags are kept even then.
 
-Two libraries come out of one tree:
+Three libraries come out of one tree:
 
 - `libdiginet`: the protocol. Frame grammar, codecs, personalities. No socket, no clock.
 - `libdiginet-transport`: the wire. The packet socket and the session (discovery, wake,
   ACKs, retransmit, keepalive, coalescing, pacing), and the desk mux (many desks over one
   socket that hears every interface). It links `libdiginet`.
+- `libdiginet-emu`: the desk emulator (see Tests below), installed so that a project testing
+  against a Control|24 or ProControl links it instead of keeping its own copy.
 
 `make install` copies the headers to `$(PREFIX)/include/diginet/`, the archives to
-`$(PREFIX)/lib` (`LIBDIR=` to change it) and two pkg-config files, so a consumer builds with:
+`$(PREFIX)/lib` (`LIBDIR=` to change it) and three pkg-config files, so a consumer builds with:
 
 ```
 cc app.c $(pkg-config --cflags --libs libdiginet-transport)
+cc test.c $(pkg-config --cflags --libs libdiginet-emu)
 ```
 
 ## Tests
@@ -38,8 +41,9 @@ The C suite reads that file and checks every frame against the values `docs/prot
 gives. The same file feeds the Kaitai check below, so the two readings of the grammar cannot
 drift apart.
 
-The transport suite needs no desk and no privileges. `tests/desk_emu.c` is a desk emulator
-that speaks the protocol; `test_transport` drives a session against it on a virtual clock
+The transport suite needs no desk and no privileges. `testsupport/desk_emu.c`, installed as
+`libdiginet-emu`, is a desk emulator that speaks the protocol; `test_transport` drives a
+session against it on a virtual clock
 (minutes of desk time in milliseconds), `test_mux` drives the desk mux against two of them on
 two interfaces, and `test_fdio` does the same on the real clock over a socketpair. `test_packet` runs the real `AF_PACKET` path: it enters a user and network
 namespace of its own, where it may open packet sockets on a private loopback; where

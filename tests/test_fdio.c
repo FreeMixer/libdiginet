@@ -11,7 +11,7 @@
  *
  *   tests/test_fdio <path to diginet-packet-helper> */
 #include "golden.h"
-#include "emu_pump.h"
+#include <diginet/testsupport/emu_pump.h>
 
 #include <fcntl.h>
 #include <unistd.h>

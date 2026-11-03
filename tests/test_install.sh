@@ -38,10 +38,44 @@ PKG_CONFIG_SYSROOT_DIR="$tmp/root" PKG_CONFIG_LIBDIR="$tmp/root/usr/lib/pkgconfi
 [ -x "$tmp/root/usr/bin/diginet-packet-helper" ] && [ -f "$tmp/root/usr/share/man/man1/diginet-packet-helper.1" ] ||
 	{ echo "FAIL: diginet-packet-helper or its manual page is not installed"; exit 1; }
 
+# The desk emulator is installed test support (libdiginet-emu): a consumer builds against it
+# through pkg-config alone, same as the protocol and transport above, and gets a real emulator
+# back, not a stub.
+cat > "$tmp/emu_consumer.c" <<'C'
+#include <string.h>
+#include <diginet/diginet.h>
+#include <diginet/testsupport/desk_emu.h>
+int main(void)
+{
+	static const uint8_t mac[6] = { 0x02, 0, 0, 0, 0, 0x01 };
+	struct desk_emu e;
+	uint8_t buf[DIGINET_MAX_FRAME_LEN];
+	emu_init(&e, mac, "Control|24", "1.0");
+	emu_announce(&e, 0);
+	size_t n = emu_pop(&e, buf, sizeof buf);
+	if (n == 0)
+		return 1;
+	static const uint8_t bcast[6] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff };
+	if (memcmp(buf, bcast, 6) != 0 || memcmp(buf + 6, mac, 6) != 0)
+		return 1;
+	return buf[12] == 0x88 && buf[13] == 0x5f ? 0 : 1;
+}
+C
+PKG_CONFIG_SYSROOT_DIR="$tmp/root" PKG_CONFIG_LIBDIR="$tmp/root/usr/lib/pkgconfig" \
+	sh -c "${CC:-cc} '$tmp/emu_consumer.c' \$(pkg-config --cflags --libs libdiginet-emu) -o '$tmp/emu_consumer'" ||
+	{ echo "FAIL: a consumer does not build against the installed libdiginet-emu"; exit 1; }
+"$tmp/emu_consumer" || { echo "FAIL: the installed desk emulator gave the wrong answer"; exit 1; }
+
 # A second install to another prefix names that prefix: nothing from the first one is reused.
 make -s -C "$top" install PREFIX=/opt/elsewhere DESTDIR="$tmp/other" >/dev/null || { echo "FAIL: second make install"; exit 1; }
-for pc in libdiginet libdiginet-transport; do
+for pc in libdiginet libdiginet-transport libdiginet-emu; do
 	grep -qx 'includedir=/opt/elsewhere/include' "$tmp/other/opt/elsewhere/lib/pkgconfig/$pc.pc" ||
 		{ echo "FAIL: $pc.pc of the second install names another prefix"; exit 1; }
+done
+# The packages install with install-shared: their development package carries the emulator too.
+make -s -C "$top" install-shared PREFIX=/usr DESTDIR="$tmp/pkg" >/dev/null || { echo "FAIL: make install-shared"; exit 1; }
+for f in usr/lib/libdiginet-emu.a usr/lib/pkgconfig/libdiginet-emu.pc usr/include/diginet/testsupport/desk_emu.h \
+	usr/include/diginet/testsupport/emu_pump.h usr/include/diginet/testsupport/netns.h; do
+	[ -f "$tmp/pkg/$f" ] || { echo "FAIL: install-shared does not install $f"; exit 1; }
 done
 echo "test_install: ok"
