@@ -10,7 +10,7 @@
 #include <errno.h>
 #include <sys/socket.h>
 
-#include "desk_emu.h"
+#include <diginet/testsupport/desk_emu.h>
 #include <diginet/transport/diginet_io.h>
 
 static inline void emu_pump_fd(struct desk_emu *e, int fd, uint64_t *next_announce, uint64_t period_us)

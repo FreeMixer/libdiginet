@@ -18,7 +18,7 @@
  *     --any, a helper that is not there.
  */
 #include "golden.h"
-#include "emu_pump.h"
+#include <diginet/testsupport/emu_pump.h>
 
 #include <fcntl.h>
 #include <signal.h>

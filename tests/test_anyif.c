@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 
-/* The any-interface packet socket on real interfaces, without root (tests/netns.h): the test
+/* The any-interface packet socket on real interfaces, without root (diginet/testsupport/netns.h): the test
  * enters a user and network namespace of its own and makes two veth pairs, hA <-> dA and
  * hB <-> dB, the h ends the host's interfaces and the d ends where a desk sits. Then:
  *
@@ -28,8 +28,8 @@
  * Exits 77 where unprivileged user and network namespaces are not allowed: nothing was tested. */
 #define _GNU_SOURCE
 #include "golden.h"
-#include "netns.h"
-#include "emu_pump.h"
+#include <diginet/testsupport/netns.h>
+#include <diginet/testsupport/emu_pump.h>
 
 #include <signal.h>
 #include <time.h>

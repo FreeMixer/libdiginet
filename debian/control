@@ -39,7 +39,9 @@ Depends: libdiginet0 (= ${binary:Version}), libdiginet-transport0 (= ${binary:Ve
 Description: Control|24 and ProControl libraries, development files
  Headers, the pkg-config files libdiginet and libdiginet-transport, and the
  Kaitai Struct grammar of the protocol, diginet.ksy, for building programs
- that drive a Control|24 or ProControl.
+ that drive a Control|24 or ProControl; and libdiginet-emu, a static desk
+ emulator with its headers and pkg-config file, for testing them without a
+ desk.
 
 Package: diginet-tools
 Section: utils

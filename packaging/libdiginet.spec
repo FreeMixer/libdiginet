@@ -3,7 +3,7 @@
 # libdiginet-transport, the wire under it, from one source and one version; diginet-tools
 # carries diginet-probe and diginet-packet-helper.
 Name:           libdiginet
-Version:        0.1.6
+Version:        0.1.7
 # The sonames' majors. rpm derives this package's provides and every consumer's requires from
 # them. They copy DIGINET_ABI and DIGINET_TRANSPORT_ABI of include/diginet/diginet.h, and
 # tests/conformance-packaging.sh (in make test) refuses a copy that disagrees.
@@ -40,7 +40,9 @@ Requires:       %{name}%{?_isa} = %{version}-%{release}
 
 %description devel
 Headers, pkg-config files (libdiginet, libdiginet-transport) and the Kaitai Struct grammar of
-the protocol, diginet.ksy, for building programs that drive a Control|24 or ProControl.
+the protocol, diginet.ksy, for building programs that drive a Control|24 or ProControl; and
+libdiginet-emu, a static desk emulator with its headers and pkg-config file, for testing them
+without a desk.
 
 %package -n diginet-tools
 Summary:        diginet-probe and diginet-packet-helper for a Control|24 or ProControl
@@ -82,12 +84,16 @@ make CFLAGS="%{optflags}" test
 %doc BUILDING.md docs/protocol.md
 %dir %{_includedir}/diginet
 %dir %{_includedir}/diginet/transport
+%dir %{_includedir}/diginet/testsupport
 %{_includedir}/diginet/*.h
 %{_includedir}/diginet/transport/*.h
+%{_includedir}/diginet/testsupport/*.h
+%{_libdir}/libdiginet-emu.a
 %{_libdir}/libdiginet.so
 %{_libdir}/libdiginet-transport.so
 %{_libdir}/pkgconfig/libdiginet.pc
 %{_libdir}/pkgconfig/libdiginet-transport.pc
+%{_libdir}/pkgconfig/libdiginet-emu.pc
 %dir %{_datadir}/diginet
 %{_datadir}/diginet/diginet.ksy
 
@@ -99,6 +105,12 @@ make CFLAGS="%{optflags}" test
 %{_mandir}/man1/diginet-packet-helper.1*
 
 %changelog
+* Tue Nov 03 2026 Pau Aliagas <linuxnow@gmail.com> - 0.1.7-1
+- libdiginet-emu: the desk emulator, its pump and the network-namespace helper
+  are installed as test support (a static archive, include/diginet/testsupport
+  and libdiginet-emu.pc), in libdiginet-devel, so consumers build their tests
+  against it instead of carrying copies (#59).
+
 * Sun Nov 01 2026 Pau Aliagas <linuxnow@gmail.com> - 0.1.6-1
 - A desk that ACKed its e2 has 10 s to show its e1, since it does so at its
   next announce, up to 9.4 s apart on a Control|24. The 3 s stays for the

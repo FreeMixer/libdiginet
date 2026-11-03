@@ -26,7 +26,7 @@
 #include <errno.h>
 
 #include "golden.h"
-#include "desk_emu.h"
+#include <diginet/testsupport/desk_emu.h>
 
 #include <diginet/diginet_codec.h>
 #include <diginet/transport/diginet_mux.h>
