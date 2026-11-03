@@ -3,4 +3,6 @@ usr/lib/*/libdiginet.so
 usr/lib/*/libdiginet-transport.so
 usr/lib/*/pkgconfig/libdiginet.pc
 usr/lib/*/pkgconfig/libdiginet-transport.pc
+usr/lib/*/pkgconfig/libdiginet-emu.pc
+usr/lib/*/libdiginet-emu.a
 usr/share/diginet/diginet.ksy

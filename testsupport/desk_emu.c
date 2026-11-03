@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 
-/* The desk emulator (tests/desk_emu.h). */
+/* The desk emulator (diginet/testsupport/desk_emu.h). */
 #include <string.h>
 
-#include "desk_emu.h"
+#include <diginet/testsupport/desk_emu.h>
 
 static const uint8_t BCAST[6] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff };
 

@@ -7,7 +7,7 @@
  * them. Exits 77 where unprivileged namespaces are not allowed: nothing was tested then. */
 #define _GNU_SOURCE
 #include "golden.h"
-#include "emu_pump.h"
+#include <diginet/testsupport/emu_pump.h>
 
 #include <sched.h>
 #include <unistd.h>

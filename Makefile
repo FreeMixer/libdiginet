@@ -33,6 +33,10 @@ OBJS := src/diginet_frame.o src/diginet_msg.o src/diginet_codec.o src/diginet_de
 
 TOBJS := transport/src/diginet_io.o transport/src/diginet_session.o transport/src/diginet_mux.o
 
+# The desk emulator (testsupport/desk_emu.c): installed test support, so a project testing
+# against a Control|24 or ProControl links it instead of keeping its own copy (#58).
+EOBJS := testsupport/desk_emu.o
+
 TESTS := tests/test_frame tests/test_codec tests/test_transport tests/test_mux tests/test_fdio tests/test_packet
 
 GOLDEN := tests/golden/frames.txt
@@ -41,7 +45,7 @@ RUN_TEST := tests/run-test.sh
 PROBE := tools/diginet-probe
 HELPER := tools/diginet-packet-helper
 
-all: libdiginet.a libdiginet-transport.a $(PROBE) $(HELPER)
+all: libdiginet.a libdiginet-transport.a libdiginet-emu.a $(PROBE) $(HELPER)
 
 # -MMD -MP: a header edit rebuilds every object that includes it.
 src/%.o: src/%.c
@@ -50,7 +54,10 @@ src/%.o: src/%.c
 transport/src/%.o: transport/src/%.c
 	$(CC) $(CFLAGS) $(WARN) -MMD -MP $(INC) -c $< -o $@
 
--include $(OBJS:.o=.d) $(TOBJS:.o=.d)
+testsupport/%.o: testsupport/%.c
+	$(CC) $(CFLAGS) $(WARN) -MMD -MP $(INC) -c $< -o $@
+
+-include $(OBJS:.o=.d) $(TOBJS:.o=.d) $(EOBJS:.o=.d)
 
 libdiginet.a: $(OBJS)
 	$(AR) rcs $@ $(OBJS)
@@ -58,17 +65,20 @@ libdiginet.a: $(OBJS)
 libdiginet-transport.a: $(TOBJS)
 	$(AR) rcs $@ $(TOBJS)
 
+libdiginet-emu.a: $(EOBJS)
+	$(AR) rcs $@ $(EOBJS)
+
 tests/test_frame: tests/test_frame.c tests/golden.h libdiginet.a
 	$(CC) $(CFLAGS) $(WARN) $(INC) $< libdiginet.a -o $@
 
 tests/test_codec: tests/test_codec.c tests/golden.h libdiginet.a
 	$(CC) $(CFLAGS) $(WARN) $(INC) $< libdiginet.a -o $@
 
-tests/test_transport tests/test_mux: tests/%: tests/%.c tests/desk_emu.c tests/desk_emu.h tests/golden.h libdiginet-transport.a libdiginet.a
-	$(CC) $(CFLAGS) $(WARN) $(INC) $< tests/desk_emu.c libdiginet-transport.a libdiginet.a -o $@
+tests/test_transport tests/test_mux: tests/%: tests/%.c tests/golden.h libdiginet-emu.a libdiginet-transport.a libdiginet.a
+	$(CC) $(CFLAGS) $(WARN) $(INC) $< libdiginet-emu.a libdiginet-transport.a libdiginet.a -o $@
 
-tests/test_fdio tests/test_packet: tests/%: tests/%.c tests/desk_emu.c tests/desk_emu.h tests/emu_pump.h tests/golden.h libdiginet-transport.a libdiginet.a
-	$(CC) $(CFLAGS) $(WARN) $(INC) $< tests/desk_emu.c libdiginet-transport.a libdiginet.a -o $@
+tests/test_fdio tests/test_packet: tests/%: tests/%.c tests/golden.h libdiginet-emu.a libdiginet-transport.a libdiginet.a
+	$(CC) $(CFLAGS) $(WARN) $(INC) $< libdiginet-emu.a libdiginet-transport.a libdiginet.a -o $@
 
 $(PROBE): tools/diginet-probe.c libdiginet-transport.a libdiginet.a
 	$(CC) $(CFLAGS) $(WARN) $(INC) $< libdiginet-transport.a libdiginet.a $(LDFLAGS) -o $@
@@ -100,11 +110,11 @@ build/diginet-probe: tools/diginet-probe.c $(TSO) $(SO)
 
 shared: $(SO) $(TSO) build/diginet-probe $(HELPER)
 
-tests/test_anyif: tests/test_anyif.c tests/netns.h tests/desk_emu.c tests/desk_emu.h tests/emu_pump.h tests/golden.h libdiginet-transport.a libdiginet.a
-	$(CC) $(CFLAGS) $(WARN) $(INC) $< tests/desk_emu.c libdiginet-transport.a libdiginet.a -o $@
+tests/test_anyif: tests/test_anyif.c tests/golden.h libdiginet-emu.a libdiginet-transport.a libdiginet.a
+	$(CC) $(CFLAGS) $(WARN) $(INC) $< libdiginet-emu.a libdiginet-transport.a libdiginet.a -o $@
 
-tests/test_probe: tests/test_probe.c tests/desk_emu.c tests/desk_emu.h tests/emu_pump.h tests/golden.h libdiginet-transport.a libdiginet.a
-	$(CC) $(CFLAGS) $(WARN) $(INC) $< tests/desk_emu.c libdiginet-transport.a libdiginet.a -o $@
+tests/test_probe: tests/test_probe.c tests/golden.h libdiginet-emu.a libdiginet-transport.a libdiginet.a
+	$(CC) $(CFLAGS) $(WARN) $(INC) $< libdiginet-emu.a libdiginet-transport.a libdiginet.a -o $@
 
 test: $(TESTS) tests/test_probe tests/test_anyif $(PROBE) $(HELPER)
 	$(RUN_TEST) tests/test_frame $(GOLDEN)
@@ -257,24 +267,30 @@ PCSED = sed -e 's|@PREFIX@|$(PREFIX)|' -e 's|@LIBDIR@|$(LIBDIR)|' -e 's|@INCDIR@
 
 # What both installs carry: headers, pkg-config files, the grammar, the manual page.
 install-common:
-	install -d $(DESTDIR)$(INCDIR)/diginet/transport $(DESTDIR)$(PCDIR) $(DESTDIR)$(BINDIR) \
-	    $(DESTDIR)$(DATADIR)/diginet $(DESTDIR)$(MANDIR)/man1
+	install -d $(DESTDIR)$(INCDIR)/diginet/transport $(DESTDIR)$(INCDIR)/diginet/testsupport $(DESTDIR)$(PCDIR) \
+	    $(DESTDIR)$(BINDIR) $(DESTDIR)$(DATADIR)/diginet $(DESTDIR)$(MANDIR)/man1
 	install -m 644 include/diginet/*.h $(DESTDIR)$(INCDIR)/diginet/
 	install -m 644 include/diginet/transport/*.h $(DESTDIR)$(INCDIR)/diginet/transport/
+	install -m 644 include/diginet/testsupport/*.h $(DESTDIR)$(INCDIR)/diginet/testsupport/
 	$(PCSED) packaging/libdiginet.pc.in > $(DESTDIR)$(PCDIR)/libdiginet.pc
 	$(PCSED) packaging/libdiginet-transport.pc.in > $(DESTDIR)$(PCDIR)/libdiginet-transport.pc
+	$(PCSED) packaging/libdiginet-emu.pc.in > $(DESTDIR)$(PCDIR)/libdiginet-emu.pc
 	install -m 644 protocol/diginet.ksy $(DESTDIR)$(DATADIR)/diginet/
 	install -m 644 docs/diginet-probe.1 docs/diginet-packet-helper.1 $(DESTDIR)$(MANDIR)/man1/
 
-install: libdiginet.a libdiginet-transport.a $(PROBE) $(HELPER) install-common
+# libdiginet-emu is installed test support, not a runtime library: a static archive in either
+# install, which the packages carry in their development package only, beside its headers and
+# its pkg-config file.
+install: libdiginet.a libdiginet-transport.a libdiginet-emu.a $(PROBE) $(HELPER) install-common
 	install -d $(DESTDIR)$(LIBDIR)
-	install -m 644 libdiginet.a libdiginet-transport.a $(DESTDIR)$(LIBDIR)/
+	install -m 644 libdiginet.a libdiginet-transport.a libdiginet-emu.a $(DESTDIR)$(LIBDIR)/
 	install -m 755 $(PROBE) $(HELPER) $(DESTDIR)$(BINDIR)/
 
 # The packages: shared libraries with their soname links, the probe linked against them.
-install-shared: shared $(HELPER) install-common
+install-shared: shared libdiginet-emu.a $(HELPER) install-common
 	install -d $(DESTDIR)$(LIBDIR)
 	install -m 755 $(SO) $(TSO) $(DESTDIR)$(LIBDIR)/
+	install -m 644 libdiginet-emu.a $(DESTDIR)$(LIBDIR)/
 	ln -sf $(SO) $(DESTDIR)$(LIBDIR)/libdiginet.so.$(ABI)
 	ln -sf libdiginet.so.$(ABI) $(DESTDIR)$(LIBDIR)/libdiginet.so
 	ln -sf $(TSO) $(DESTDIR)$(LIBDIR)/libdiginet-transport.so.$(TABI)
@@ -282,7 +298,8 @@ install-shared: shared $(HELPER) install-common
 	install -m 755 build/diginet-probe $(HELPER) $(DESTDIR)$(BINDIR)/
 
 clean:
-	rm -f $(OBJS) $(OBJS:.o=.d) $(TOBJS) $(TOBJS:.o=.d) libdiginet.a libdiginet-transport.a *.pc $(TESTS) tests/test_probe tests/test_anyif \
+	rm -f $(OBJS) $(OBJS:.o=.d) $(TOBJS) $(TOBJS:.o=.d) $(EOBJS) $(EOBJS:.o=.d) \
+	    libdiginet.a libdiginet-transport.a libdiginet-emu.a *.pc $(TESTS) tests/test_probe tests/test_anyif \
 	    $(PROBE) $(HELPER)
 	rm -f libdiginet.so* libdiginet-transport.so*
 	rm -rf build

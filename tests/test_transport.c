@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 
-/* The session against the desk emulator (tests/desk_emu.c), on a virtual clock: no
+/* The session against the desk emulator (testsupport/desk_emu.c), on a virtual clock: no
  * hardware, no privileges, minutes of desk time in milliseconds.
  *
  *  1. ONLINE     e0 -> e2 -> a0 + e1 naming us = ONLINE; neither half alone is enough;
@@ -31,7 +31,7 @@
 #include <errno.h>
 
 #include "golden.h"
-#include "desk_emu.h"
+#include <diginet/testsupport/desk_emu.h>
 
 #include <diginet/diginet_codec.h>
 #include <diginet/transport/diginet_session.h>

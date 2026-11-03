@@ -1,0 +1,10 @@
+prefix=@PREFIX@
+libdir=@LIBDIR@
+includedir=@INCDIR@
+
+Name: libdiginet-emu
+Description: DigiNet desk emulator, installed test support for a Control|24 or ProControl host
+Version: @VERSION@
+Requires.private: libdiginet-transport, libdiginet
+Libs: -L${libdir} -ldiginet-emu -ldiginet-transport -ldiginet
+Cflags: -I${includedir}

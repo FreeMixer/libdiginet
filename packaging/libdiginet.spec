@@ -40,7 +40,9 @@ Requires:       %{name}%{?_isa} = %{version}-%{release}
 
 %description devel
 Headers, pkg-config files (libdiginet, libdiginet-transport) and the Kaitai Struct grammar of
-the protocol, diginet.ksy, for building programs that drive a Control|24 or ProControl.
+the protocol, diginet.ksy, for building programs that drive a Control|24 or ProControl; and
+libdiginet-emu, a static desk emulator with its headers and pkg-config file, for testing them
+without a desk.
 
 %package -n diginet-tools
 Summary:        diginet-probe and diginet-packet-helper for a Control|24 or ProControl
@@ -82,12 +84,16 @@ make CFLAGS="%{optflags}" test
 %doc BUILDING.md docs/protocol.md
 %dir %{_includedir}/diginet
 %dir %{_includedir}/diginet/transport
+%dir %{_includedir}/diginet/testsupport
 %{_includedir}/diginet/*.h
 %{_includedir}/diginet/transport/*.h
+%{_includedir}/diginet/testsupport/*.h
+%{_libdir}/libdiginet-emu.a
 %{_libdir}/libdiginet.so
 %{_libdir}/libdiginet-transport.so
 %{_libdir}/pkgconfig/libdiginet.pc
 %{_libdir}/pkgconfig/libdiginet-transport.pc
+%{_libdir}/pkgconfig/libdiginet-emu.pc
 %dir %{_datadir}/diginet
 %{_datadir}/diginet/diginet.ksy
 
