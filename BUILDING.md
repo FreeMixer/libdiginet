@@ -42,7 +42,12 @@ gives. The same file feeds the Kaitai check below, so the two readings of the gr
 drift apart.
 
 The transport suite needs no desk and no privileges. `testsupport/desk_emu.c`, installed as
-`libdiginet-emu`, is a desk emulator that speaks the protocol; `test_transport` drives a
+`libdiginet-emu` with the headers under `include/diginet/testsupport/` (`emu_pump.h` runs it
+over a descriptor on the real clock, `netns.h` makes a private network without root, and
+`emu_child.h` puts a program under test on one end of a veth pair with the emulated desk on
+the other, which is how libsurface's surface-c24 and the console's surface-native addon are
+tested; `test_emu_child` proves that harness on diginet-probe), is a desk emulator that
+speaks the protocol; `test_transport` drives a
 session against it on a virtual clock
 (minutes of desk time in milliseconds), `test_mux` drives the desk mux against two of them on
 two interfaces, and `test_fdio` does the same on the real clock over a socketpair. `test_packet` runs the real `AF_PACKET` path: it enters a user and network
