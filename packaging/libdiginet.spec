@@ -77,12 +77,15 @@ make CFLAGS="%{optflags}" test
 
 %files
 %license LICENSE
+%doc README.md
 %{_libdir}/libdiginet.so.%{version}
 %{_libdir}/libdiginet.so.%{abi}
 %{_libdir}/libdiginet-transport.so.%{version}
 %{_libdir}/libdiginet-transport.so.%{tabi}
 
 %files devel
+%license LICENSE
+%doc README.md
 %dir %{_includedir}/diginet
 %dir %{_includedir}/diginet/transport
 %dir %{_includedir}/diginet/testsupport
@@ -99,6 +102,8 @@ make CFLAGS="%{optflags}" test
 %{_datadir}/diginet/diginet.ksy
 
 %files -n diginet-tools
+%license LICENSE
+%doc README.md
 %caps(cap_net_raw=ep) %{_bindir}/diginet-probe
 %caps(cap_net_raw=ep) %{_bindir}/diginet-packet-helper
 %{_mandir}/man1/diginet-probe.1*
