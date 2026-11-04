@@ -116,7 +116,11 @@ tests/test_anyif: tests/test_anyif.c tests/golden.h libdiginet-emu.a libdiginet-
 tests/test_probe: tests/test_probe.c tests/golden.h libdiginet-emu.a libdiginet-transport.a libdiginet.a
 	$(CC) $(CFLAGS) $(WARN) $(INC) $< libdiginet-emu.a libdiginet-transport.a libdiginet.a -o $@
 
-test: $(TESTS) tests/test_probe tests/test_anyif $(PROBE) $(HELPER)
+# The child harness the module tests of libsurface and the console run on, proved on the probe.
+tests/test_emu_child: tests/test_emu_child.c include/diginet/testsupport/emu_child.h libdiginet-emu.a libdiginet-transport.a libdiginet.a
+	$(CC) $(CFLAGS) $(WARN) $(INC) $< libdiginet-emu.a libdiginet-transport.a libdiginet.a -o $@
+
+test: $(TESTS) tests/test_probe tests/test_anyif tests/test_emu_child $(PROBE) $(HELPER)
 	$(RUN_TEST) tests/test_frame $(GOLDEN)
 	$(RUN_TEST) tests/test_codec $(GOLDEN)
 	$(RUN_TEST) tests/test_transport
@@ -125,6 +129,7 @@ test: $(TESTS) tests/test_probe tests/test_anyif $(PROBE) $(HELPER)
 	$(RUN_TEST) tests/test_packet
 	$(RUN_TEST) tests/test_anyif $(HELPER) $(PROBE)
 	$(RUN_TEST) tests/test_probe $(PROBE)
+	$(RUN_TEST) tests/test_emu_child $(PROBE)
 	$(RUN_TEST) tests/test_install.sh
 	$(RUN_TEST) tests/conformance-packaging.sh
 	$(RUN_TEST) tests/test_workflows.sh
@@ -306,7 +311,7 @@ install-shared: shared libdiginet-emu.a $(HELPER) install-common
 clean:
 	rm -f $(OBJS) $(OBJS:.o=.d) $(TOBJS) $(TOBJS:.o=.d) $(EOBJS) $(EOBJS:.o=.d) \
 	    libdiginet.a libdiginet-transport.a libdiginet-emu.a *.pc $(TESTS) tests/test_probe tests/test_anyif \
-	    $(PROBE) $(HELPER)
+	    tests/test_emu_child $(PROBE) $(HELPER)
 	rm -f libdiginet.so* libdiginet-transport.so*
 	rm -rf build
 

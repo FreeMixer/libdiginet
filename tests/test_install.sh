@@ -75,7 +75,8 @@ done
 # The packages install with install-shared: their development package carries the emulator too.
 make -s -C "$top" install-shared PREFIX=/usr DESTDIR="$tmp/pkg" >/dev/null || { echo "FAIL: make install-shared"; exit 1; }
 for f in usr/lib/libdiginet-emu.a usr/lib/pkgconfig/libdiginet-emu.pc usr/include/diginet/testsupport/desk_emu.h \
-	usr/include/diginet/testsupport/emu_pump.h usr/include/diginet/testsupport/netns.h; do
+	usr/include/diginet/testsupport/emu_pump.h usr/include/diginet/testsupport/netns.h \
+	usr/include/diginet/testsupport/emu_child.h; do
 	[ -f "$tmp/pkg/$f" ] || { echo "FAIL: install-shared does not install $f"; exit 1; }
 done
 echo "test_install: ok"

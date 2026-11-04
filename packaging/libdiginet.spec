@@ -3,7 +3,7 @@
 # libdiginet-transport, the wire under it, from one source and one version; diginet-tools
 # carries diginet-probe and diginet-packet-helper.
 Name:           libdiginet
-Version:        0.1.7
+Version:        0.1.8
 # The sonames' majors. rpm derives this package's provides and every consumer's requires from
 # them. They copy DIGINET_ABI and DIGINET_TRANSPORT_ABI of include/diginet/diginet.h, and
 # tests/conformance-packaging.sh (in make test) refuses a copy that disagrees.
@@ -26,6 +26,7 @@ libdiginet speaks DigiNet, the raw Ethernet protocol of the Digidesign Control|2
 ProControl control surfaces, so a Linux mixer or DAW can drive one again: motor faders and
 their touch, V-Pots and their LED rings, every key and lamp, scribble strips, meters, the
 counter and the jog wheel.
+Its documentation is on openmixer.org.
 
 This package holds two shared libraries. libdiginet is the protocol: the frame grammar,
 encoders and decoders for every control, and one personality per desk; it refuses to encode
@@ -43,6 +44,7 @@ Headers, pkg-config files (libdiginet, libdiginet-transport) and the Kaitai Stru
 the protocol, diginet.ksy, for building programs that drive a Control|24 or ProControl; and
 libdiginet-emu, a static desk emulator with its headers and pkg-config file, for testing them
 without a desk.
+Its documentation is on openmixer.org.
 
 %package -n diginet-tools
 Summary:        diginet-probe and diginet-packet-helper for a Control|24 or ProControl
@@ -53,6 +55,7 @@ diginet-probe wakes a Control|24 or ProControl cabled to a network interface, mo
 lights a lamp, writes a scribble strip, logs and decodes every key, touch and turn, and ends
 with a summary of what the desk answered. It is installed with the one capability it needs
 to open a packet socket, cap_net_raw.
+Its documentation is on openmixer.org.
 
 diginet-packet-helper opens the packet socket that hears a desk on every network interface and
 hands it to the program that started it, so that program needs no capability. It is installed
@@ -81,7 +84,8 @@ make CFLAGS="%{optflags}" test
 %{_libdir}/libdiginet-transport.so.%{tabi}
 
 %files devel
-%doc BUILDING.md docs/protocol.md
+%license LICENSE
+%doc README.md
 %dir %{_includedir}/diginet
 %dir %{_includedir}/diginet/transport
 %dir %{_includedir}/diginet/testsupport
@@ -98,13 +102,21 @@ make CFLAGS="%{optflags}" test
 %{_datadir}/diginet/diginet.ksy
 
 %files -n diginet-tools
-%doc docs/probe.md
+%license LICENSE
+%doc README.md
 %caps(cap_net_raw=ep) %{_bindir}/diginet-probe
 %caps(cap_net_raw=ep) %{_bindir}/diginet-packet-helper
 %{_mandir}/man1/diginet-probe.1*
 %{_mandir}/man1/diginet-packet-helper.1*
 
 %changelog
+* Wed Nov 04 2026 Pau Aliagas <linuxnow@gmail.com> - 0.1.8-1
+- The packages install their licence and a short README and no other markdown.
+- The shared FreeMixer/.github checks replace the local copy (#62).
+- libdiginet-emu: the child harness (include/diginet/testsupport/emu_child.h) that
+  libsurface's and the console's end-to-end tests run their emulator under (#65).
+- No change to the library or its ABI.
+
 * Tue Nov 03 2026 Pau Aliagas <linuxnow@gmail.com> - 0.1.7-1
 - libdiginet-emu: the desk emulator, its pump and the network-namespace helper
   are installed as test support (a static archive, include/diginet/testsupport

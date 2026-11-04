@@ -25,7 +25,7 @@
 #include <linux/rtnetlink.h>
 #include <linux/veth.h>
 
-static int ns_write(const char *path, const char *text)
+static inline int ns_write(const char *path, const char *text)
 {
 	int fd = open(path, O_WRONLY | O_CLOEXEC);
 	if (fd < 0)
@@ -38,7 +38,7 @@ static int ns_write(const char *path, const char *text)
 /* Enter a new user and network namespace as its uid 0, so a program this process starts keeps
  * the namespace's capabilities too. 0, or -1 with errno where the machine allows no such
  * namespace. */
-static int ns_enter(void)
+static inline int ns_enter(void)
 {
 	char map[64];
 	uid_t uid = getuid();
@@ -54,7 +54,7 @@ static int ns_enter(void)
 	return ns_write("/proc/self/gid_map", map);
 }
 
-static int ns_up(const char *name)
+static inline int ns_up(const char *name)
 {
 	struct ifreq ifr;
 	int ctl = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
@@ -71,7 +71,7 @@ static int ns_up(const char *name)
 	return r;
 }
 
-static void ns_attr(struct nlmsghdr *h, unsigned short type, const void *data, size_t len)
+static inline void ns_attr(struct nlmsghdr *h, unsigned short type, const void *data, size_t len)
 {
 	struct rtattr *a = (struct rtattr *)((char *)h + NLMSG_ALIGN(h->nlmsg_len));
 	a->rta_type = type;
@@ -81,20 +81,20 @@ static void ns_attr(struct nlmsghdr *h, unsigned short type, const void *data, s
 	h->nlmsg_len = NLMSG_ALIGN(h->nlmsg_len) + RTA_ALIGN(a->rta_len);
 }
 
-static struct rtattr *ns_nest(struct nlmsghdr *h, unsigned short type)
+static inline struct rtattr *ns_nest(struct nlmsghdr *h, unsigned short type)
 {
 	struct rtattr *a = (struct rtattr *)((char *)h + NLMSG_ALIGN(h->nlmsg_len));
 	ns_attr(h, type, NULL, 0);
 	return a;
 }
 
-static void ns_end(struct nlmsghdr *h, struct rtattr *nest)
+static inline void ns_end(struct nlmsghdr *h, struct rtattr *nest)
 {
 	nest->rta_len = (unsigned short)((char *)h + h->nlmsg_len - (char *)nest);
 }
 
 /* A veth pair `a` <-> `b`, both up: what goes out of one comes in on the other. 0, or -1. */
-static int ns_veth(const char *a, const char *b)
+static inline int ns_veth(const char *a, const char *b)
 {
 	struct {
 		struct nlmsghdr h;
@@ -135,7 +135,7 @@ static int ns_veth(const char *a, const char *b)
 
 /* Give up every capability this process holds, effective, permitted and inheritable: from
  * here on it is as unprivileged as any user's process. 0, or -1. */
-static int ns_drop_caps(void)
+static inline int ns_drop_caps(void)
 {
 	struct __user_cap_header_struct h = { .version = _LINUX_CAPABILITY_VERSION_3, .pid = 0 };
 	struct __user_cap_data_struct d[2];

@@ -2,37 +2,37 @@
 
 A C library for the Ethernet protocol of the Digidesign **Control|24** and **ProControl** control surfaces, so that any Linux mixer or DAW can drive one again: motor faders, V-Pots and their LED rings, buttons and lamps, scribble strips, meters, the counter and the jog wheel.
 
-The surfaces talk raw Ethernet (EtherType `0x885F`), not MIDI or IP. libdiginet holds the protocol: frame and session grammar, encoders and decoders for every control, and one personality per desk. A small transport layer holds the wire: the packet socket, discovery, the online handshake, acknowledgements, keepalive, retransmit and pacing. A host links the library, or runs a thin daemon that holds the one capability raw sockets need (`cap_net_raw`) and hands the desk's commands to an unprivileged application.
+The surfaces talk raw Ethernet (EtherType `0x885F`), not MIDI or IP. libdiginet holds the protocol: frame and session grammar, encoders and decoders for every control, and one personality per desk. A small transport layer holds the wire: the packet socket, discovery, the online handshake, acknowledgements, keepalive, retransmit and pacing. A host links the library, or runs a thin daemon that holds the one capability raw sockets need (`cap_net_raw`) and hands the desk's commands to an unprivileged application. The desk and the host must share one layer-2 segment, on a wire.
 
-What is known about the protocol, and what is still open, is in [docs/protocol.md](docs/protocol.md), every claim cited to its source.
+Early, and not yet tried on a desk.
 
-## Network
+## Install
 
-The desk broadcasts its announce (about every 7 s while idle, measured on a ProControl); after that every frame is unicast between the desk's MAC and the host's MAC. A switch forwards these frames like any other, and machines that speak only IP ignore them, so the desk can share a segment with ordinary IP clients. What the link needs:
+Fedora 44:
 
-- The desk and the host on the same layer-2 segment. There is no IP header, so no router can sit between them.
-- The desk on the untagged (native) VLAN of the host's port: it sends no VLAN tag.
-- A wired path from the desk to the host. Some Wi-Fi bridges drop an EtherType they do not know; IP clients on Wi-Fi are not affected.
-- Not on an interface that carries other real-time traffic, such as a REAC stagebox link.
-- The ProControl's port runs at 10 Mbit/s half duplex. If a modern NIC will not settle on that, put a small unmanaged 10/100 switch between them.
+```
+sudo dnf install https://www.openmixer.org/rpm/openmixer-release.noarch.rpm
+sudo dnf install libdiginet-devel diginet-tools
+```
 
-DigiNet has no authentication: the desk takes a session with whichever host answers its announce. On a LAN shared with other people, give the desk and its host a segment of their own.
+Debian bookworm and trixie (also Raspberry Pi OS):
 
-## Status
+```
+curl -fsSLO https://www.openmixer.org/deb/openmixer-release.deb && sudo apt install ./openmixer-release.deb
+sudo apt install libdiginet-dev diginet-tools
+```
 
-Early, and not yet tried on a desk. In the tree:
+## Start
 
-1. `protocol/diginet.ksy`, the formal byte grammar, with golden-frame tests.
-2. The codecs and the Control|24 / ProControl personalities.
-3. The transport: session state machine, ack window, keepalive, retransmit, latest-wins coalescing, all tested against a desk emulator.
-4. One packet socket for every interface, and a desk mux that runs a session per desk over it, with appeared and gone notices, so a host hears every desk on every NIC, one plugged in later included. The socket can come from `diginet-packet-helper`, so the host itself needs no capability.
-5. `diginet-probe`, a command-line tool for a first test on a real desk: wake it, move a fader, light a lamp, write a scribble strip, log every press. See [docs/probe.md](docs/probe.md).
+`diginet-probe` wakes a desk on the wire and lets you move a fader, light a lamp and write a scribble strip (`man diginet-probe`). A program builds with:
 
-Building and testing: [BUILDING.md](BUILDING.md).
+```
+cc app.c $(pkg-config --cflags --libs libdiginet-transport)
+```
 
-## Safety
+## Documentation
 
-The desk's system and diagnostic message family (`F0 13 xx 70 …`) can write to the desk's own memory. The library refuses to encode it.
+<https://www.openmixer.org/projects/libdiginet>, and in this repository: the network a desk needs, the status and the safety rule ([docs/overview.md](docs/overview.md)), the protocol as known, every claim cited ([docs/protocol.md](docs/protocol.md)), the probe ([docs/probe.md](docs/probe.md)), building and testing ([BUILDING.md](BUILDING.md)).
 
 ## Licence
 
