@@ -128,8 +128,14 @@ test: $(TESTS) tests/test_probe tests/test_anyif $(PROBE) $(HELPER)
 	$(RUN_TEST) tests/test_install.sh
 	$(RUN_TEST) tests/conformance-packaging.sh
 	$(RUN_TEST) tests/test_workflows.sh
-	$(RUN_TEST) tests/public-sources-check.sh
-	$(RUN_TEST) tests/test_public_sources.sh
+
+# No tracked file points into a private repository: FreeMixer/.github's private-refs check, from a
+# checkout of it (FREEMIXER_DOTGITHUB, else ../freemixer-dotgithub). CI runs it, with the commit
+# message check, through the public-sources-check workflow; `make test` does not, so the package
+# builds need no such checkout.
+FREEMIXER_DOTGITHUB ?= ../freemixer-dotgithub
+public-sources:
+	$(FREEMIXER_DOTGITHUB)/.github/actions/private-refs-check/check.sh .
 
 # The Kaitai grammar compiles, and the parser it generates reads the golden frames with
 # the values the C suite asserts, and the frames captured from a Control|24 with the values
@@ -304,5 +310,5 @@ clean:
 	rm -f libdiginet.so* libdiginet-transport.so*
 	rm -rf build
 
-.PHONY: all test ksy-check shared install install-common install-shared clean \
+.PHONY: all test ksy-check public-sources shared install install-common install-shared clean \
 	fuzz fuzz-run fuzz-sabotage fuzz-records fuzz-coverage fuzz-static fuzz-corpus fuzz-corpus-check
