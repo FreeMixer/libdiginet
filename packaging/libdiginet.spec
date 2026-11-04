@@ -113,6 +113,8 @@ make CFLAGS="%{optflags}" test
 * Wed Nov 04 2026 Pau Aliagas <linuxnow@gmail.com> - 0.1.8-1
 - The packages install their licence and a short README and no other markdown.
 - The shared FreeMixer/.github checks replace the local copy (#62).
+- libdiginet-emu: the child harness (include/diginet/testsupport/emu_child.h) that
+  libsurface's and the console's end-to-end tests run their emulator under (#65).
 - No change to the library or its ABI.
 
 * Tue Nov 03 2026 Pau Aliagas <linuxnow@gmail.com> - 0.1.7-1
