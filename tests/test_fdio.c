@@ -100,7 +100,7 @@ static int run_helper(const char *helper, int chan, const char *arg, char *err, 
 	return WIFEXITED(st) ? WEXITSTATUS(st) : -1;
 }
 
-static void handover(const char *helper)
+static void handover(const char *helper, int stray)
 {
 	int sv[2], p[2];
 	CHK(socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, sv) == 0);
@@ -110,7 +110,12 @@ static void handover(const char *helper)
 	/* A descriptor that is no packet socket is refused, and closed: it never stays open here. */
 	CHK(diginet_packet_send_fd(sv[0], p[0]) == 0);
 	int before = fcntl(0, F_DUPFD, 0);   /* the lowest free descriptor now */
+	/* a descriptor a parent left open just above it */
+	int keep = stray ? fcntl(0, F_DUPFD, before + 1) : -1;
+	CHK(!stray || keep == before + 1);
+	int second = fcntl(0, F_DUPFD, 0);   /* the next free one, past any stray */
 	close(before);
+	close(second);
 	CHK(diginet_packet_receive_fd(sv[1]) == -EPROTO);
 	CHK(!is_open(before));
 	/* So is a socket of another family. */
@@ -122,7 +127,7 @@ static void handover(const char *helper)
 	int two[2] = { p[0], p[1] };
 	CHK(send_fds(sv[0], two, 2, 1) == 0);
 	CHK(diginet_packet_receive_fd(sv[1]) == -EPROTO);
-	CHK(!is_open(before) && !is_open(before + 1));
+	CHK(!is_open(before) && !is_open(second));
 	/* Data with no descriptor is refused; the peer gone with none is -EPIPE. */
 	CHK(send_fds(sv[0], NULL, 0, 1) == 0);
 	CHK(diginet_packet_receive_fd(sv[1]) == -EPROTO);
@@ -166,6 +171,8 @@ static void handover(const char *helper)
 		CHK(diginet_packet_open_by_helper(helper) == -EPERM);
 	}
 	close(sv[0]);
+	if (keep >= 0)
+		close(keep);
 }
 
 int main(int argc, char **argv)
@@ -229,7 +236,8 @@ int main(int argc, char **argv)
 	else
 		CHK(fd == -EPERM || fd == -EACCES);
 
-	handover(argv[1]);
+	handover(argv[1], 0);
+	handover(argv[1], 1);   /* with a stray descriptor open above the lowest free one */
 
 	if (fails) {
 		fprintf(stderr, "test_fdio: %d failure(s)\n", fails);
