@@ -7,12 +7,17 @@
 #
 #   tests/public-sources-check.sh [repo-dir]
 #
-# Exit 0 clean, 1 with every offending line printed, 77 when repo-dir is not a git work
-# tree (a release tarball: nothing to check). tests/test_public_sources.sh proves it fails.
+# Exit 0 clean, 1 with every offending line printed or when nothing could be read, 77 when
+# repo-dir has no .git at all (a release tarball: nothing to check). tests/test_public_sources.sh proves it fails.
 set -u
-dir=${1:-.}
-git -C "$dir" rev-parse --is-inside-work-tree >/dev/null 2>&1 || {
-	echo "public-sources-check: $dir is not a git work tree, nothing checked"; exit 77; }
+dir=$(cd "${1:-.}" && pwd) || exit 2
+# a CI container checks the tree out as another user, and git refuses a tree it does not own unless told
+git() { command git -c safe.directory="$dir" "$@"; }
+if ! git -C "$dir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+	# no .git is a release tarball; a .git that git cannot read is a check that would read nothing
+	if [ -e "$dir/.git" ]; then echo "public-sources-check: git cannot read $dir, so nothing was read" >&2; exit 1; fi
+	echo "public-sources-check: $dir is not a git work tree, nothing checked"; exit 77
+fi
 
 # Matched without regard to case.
 names='openmixer|zerosignage|\.local/share/omx|/var/home/|/home/[a-z]+/|claude\.ai|anthropic|co-authored-by'
@@ -23,6 +28,7 @@ self='tests/public-sources-check.sh'
 bad=0
 
 files=$(git -C "$dir" ls-files | grep -v -x -e "$self")
+if [ -z "$files" ]; then echo "public-sources-check: git lists no file in $dir, so nothing was read" >&2; exit 1; fi
 if [ -n "$files" ]; then
 	hits=$(cd "$dir" && printf '%s\n' "$files" | while IFS= read -r f; do
 		[ -f "$f" ] || continue

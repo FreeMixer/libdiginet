@@ -39,4 +39,15 @@ expect msg 1
 mkdir "$tmp/notgit"
 expect notgit 77
 
+# reading nothing is red: a repository that tracks nothing, and a .git that git cannot read
+mkrepo empty
+expect empty 1
+mkdir -p "$tmp/badgit/.git"
+expect badgit 1
+
+# a checkout another user owns is read: the planted line is what fails it, not a git that refused the tree
+mkrepo owner; echo "see $p_repo for the trap" > "$tmp/owner/a.md"; commit owner "Docs (#1)"
+out=$(GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 GIT_TEST_ASSUME_DIFFERENT_OWNER=1 "$check" "$tmp/owner" 2>&1); rc=$?
+if [ "$rc" -eq 1 ] && printf '%s\n' "$out" | grep -q 'a\.md:'; then echo "ok: owner -> 1, the planted line"; else echo "FAIL: owner gave $rc: $out"; fail=1; fi
+
 exit $fail
