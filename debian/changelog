@@ -4,7 +4,7 @@ libdiginet (0.1.8) unstable; urgency=medium
     markdown; their descriptions point to openmixer.org.
   * The commit message and private reference checks run from the shared
     FreeMixer/.github workflow; the local copy is gone (#62).
-  * libdiginet-emu-dev: the child harness (diginet/testsupport/emu_child.h)
+  * libdiginet-dev: the emulator's child harness (diginet/testsupport/emu_child.h)
     that libsurface's and the console's end-to-end tests run their emulator
     under (#65).
   * No change to the library or its ABI.
