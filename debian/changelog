@@ -1,3 +1,13 @@
+libdiginet (0.1.8) unstable; urgency=medium
+
+  * The packages install their licence and a short README and no other
+    markdown; their descriptions point to openmixer.org.
+  * The commit message and private reference checks run from the shared
+    FreeMixer/.github workflow; the local copy is gone (#62).
+  * No change to the library or its ABI.
+
+ -- Pau Aliagas <linuxnow@gmail.com>  Wed, 04 Nov 2026 18:00:00 +0100
+
 libdiginet (0.1.7) unstable; urgency=medium
 
   * libdiginet-emu: the desk emulator, its pump and the network-namespace

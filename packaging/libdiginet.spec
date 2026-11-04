@@ -3,7 +3,7 @@
 # libdiginet-transport, the wire under it, from one source and one version; diginet-tools
 # carries diginet-probe and diginet-packet-helper.
 Name:           libdiginet
-Version:        0.1.7
+Version:        0.1.8
 # The sonames' majors. rpm derives this package's provides and every consumer's requires from
 # them. They copy DIGINET_ABI and DIGINET_TRANSPORT_ABI of include/diginet/diginet.h, and
 # tests/conformance-packaging.sh (in make test) refuses a copy that disagrees.
@@ -110,6 +110,11 @@ make CFLAGS="%{optflags}" test
 %{_mandir}/man1/diginet-packet-helper.1*
 
 %changelog
+* Wed Nov 04 2026 Pau Aliagas <linuxnow@gmail.com> - 0.1.8-1
+- The packages install their licence and a short README and no other markdown.
+- The shared FreeMixer/.github checks replace the local copy (#62).
+- No change to the library or its ABI.
+
 * Tue Nov 03 2026 Pau Aliagas <linuxnow@gmail.com> - 0.1.7-1
 - libdiginet-emu: the desk emulator, its pump and the network-namespace helper
   are installed as test support (a static archive, include/diginet/testsupport
