@@ -1,3 +1,12 @@
+libdiginet (0.1.9) unstable; urgency=medium
+
+  * test_fdio takes the two lowest free descriptors from the process and
+    runs the handover once more with a stray descriptor open, so it no
+    longer fails when a parent leaves one open.
+  * No change to the library or its ABI.
+
+ -- Pau Aliagas <linuxnow@gmail.com>  Thu, 05 Nov 2026 12:00:00 +0100
+
 libdiginet (0.1.8) unstable; urgency=medium
 
   * The packages install their licence and a short README and no other
