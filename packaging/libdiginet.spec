@@ -3,7 +3,7 @@
 # libdiginet-transport, the wire under it, from one source and one version; diginet-tools
 # carries diginet-probe and diginet-packet-helper.
 Name:           libdiginet
-Version:        0.1.8
+Version:        0.1.9
 # The sonames' majors. rpm derives this package's provides and every consumer's requires from
 # them. They copy DIGINET_ABI and DIGINET_TRANSPORT_ABI of include/diginet/diginet.h, and
 # tests/conformance-packaging.sh (in make test) refuses a copy that disagrees.
@@ -110,6 +110,12 @@ make CFLAGS="%{optflags}" test
 %{_mandir}/man1/diginet-packet-helper.1*
 
 %changelog
+* Thu Nov 05 2026 Pau Aliagas <linuxnow@gmail.com> - 0.1.9-1
+- test_fdio takes the two lowest free descriptors from the process and runs
+  the handover once more with a stray descriptor open, so it no longer fails
+  when a parent leaves one open.
+- No change to the library or its ABI.
+
 * Wed Nov 04 2026 Pau Aliagas <linuxnow@gmail.com> - 0.1.8-1
 - The packages install their licence and a short README and no other markdown.
 - The shared FreeMixer/.github checks replace the local copy (#62).
