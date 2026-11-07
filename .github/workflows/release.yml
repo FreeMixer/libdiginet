@@ -32,10 +32,10 @@ jobs:
       channel-deps: false
     secrets: inherit
 
-  # after the RPMs: both publish into one tree, and a push that loses a race is refused
+  # after the RPMs: both publish into one tree, and a push that loses a race is refused. A release is one wave: a red
+  # or skipped RPM job skips this one, so no DEB is published after a failed RPM.
   deb:
     needs: rpm
-    if: ${{ !cancelled() }}
     uses: FreeMixer/.github/.github/workflows/build-deb.yml@v1
     with:
       package-name: libdiginet
@@ -60,7 +60,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: libdiginet-rpms-${{ matrix.arch }}
+          name: libdiginet-rpms-fc44-${{ matrix.arch }}
           path: pkgs
       - name: Install in a clean fedora, build a consumer, check the capability
         run: sh tests/package-check.sh pkgs
